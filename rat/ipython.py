@@ -32,6 +32,12 @@ fqc_out = """
 """
 
 def zip_parse(html_file):
+    """Helper function to parse a fastqc zip output file
+
+    :param html_file: the html file for which the associated zip
+      file needs to be parsed
+    :returns: two dictionaries: summary of stats, results of fqc tests
+    """
     zpf = html_file.replace('.html', '.zip')
     summhead = []
     datahead = []
@@ -80,7 +86,12 @@ Adapter Content
 Kmer Content""".split("\n")
 
 def fastqc_display_dir(path, ignore = []):
+    """Returns iPython-HTML summarizing a folder of fastqc outputs
 
+    :param path: Path containing a number of fastqc output html/zips
+    :returns: ipython.core.display.HTML object
+    """
+    
     html_files = set(glob.glob(os.path.join(path, '*.html')))
     html_files -= set(ignore)
     html_files = list(sorted(html_files))
