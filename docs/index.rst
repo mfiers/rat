@@ -1,16 +1,17 @@
-.. Rat documentation master file, created by
-   sphinx-quickstart on Thu Oct  8 12:03:32 2015.
+.. rat documentation master file, created by
+   sphinx-quickstart on Thu Oct  8 13:40:06 2015.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to Rat's documentation!
+Welcome to rat's documentation!
 ===============================
 
 Contents:
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 4
 
+   rat
 
 
 Indices and tables
