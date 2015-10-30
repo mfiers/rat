@@ -16,15 +16,16 @@ def _get_cachedir():
 
 
 class BiomartQuery():
+
     def __init__(self, dataset):
         self.root = ET.Element(
-                "Query",
-                virtualSchemaName = "default",
-                formatter="TSV",
-                header="1",
-                uniqueRows="1",
-                count="",
-                datasetConfigVersion = "0.6")
+            "Query",
+            virtualSchemaName="default",
+            formatter="TSV",
+            header="1",
+            uniqueRows="1",
+            count="",
+            datasetConfigVersion="0.6")
         self.dataset = ET.SubElement(self.root,
                                      "Dataset",
                                      name=dataset,
@@ -46,18 +47,18 @@ class BiomartQuery():
 
 def add_biomart_data(qset, df, column,
                      index_column='external_gene_name',
-                     aggfunc = lambda x: ';'.join(map(str, set(x)))):
+                     aggfunc=lambda x: ';'.join(map(str, set(x)))):
 
     if qset.lower() == 'mouse':
         qset = 'mmusculus_gene_ensembl'
     elif qset.lower() == 'human':
         qset = 'hsapiens_gene_ensembl'
-        
-    gdq = get_default_biomartquery(qset, attributes = [column])
+
+    gdq = get_default_biomartquery(qset, attributes=[column])
     gd = biomart_get_query(gdq)
     prep_rv_raw = gd[[index_column, column]].drop_duplicates()
     prep_rv = prep_rv_raw.set_index(index_column).copy()
-
+    in
     if not prep_rv.index.is_unique:
         def _join_fields(r):
             return aggfunc(r)
@@ -68,6 +69,7 @@ def add_biomart_data(qset, df, column,
     rv = prep_rv.loc[list(df.index)]
     df[column] = rv
 
+
 def get_default_biomartquery(qset, attributes=[]):
     bq = BiomartQuery(qset)
     bq.add_attribute("ensembl_gene_id")
@@ -77,7 +79,8 @@ def get_default_biomartquery(qset, attributes=[]):
         bq.add_attribute(a)
     return bq
 
-def get_mouse_biomartquery(attributes = []):
+
+def get_mouse_biomartquery(attributes=[]):
     bq = BiomartQuery("mmusculus_gene_ensembl")
     bq.add_attribute("ensembl_gene_id")
     bq.add_attribute("external_gene_name")
@@ -105,7 +108,6 @@ def biomart_get_query(query):
 
     if os.path.exists(cachefile):
         return pd.read_pickle(cachefile)
-
 
     url = 'http://ensembl.org/biomart/martservice?query=' + query
     r = requests.get(url, stream=True)
