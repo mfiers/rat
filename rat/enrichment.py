@@ -1,14 +1,13 @@
 
-import os
+import copy
 import functools
+import io
 import logging
 import math
-from multiprocessing.dummy import Pool as ThreadPool
-import io
+import os
 import pickle
-import random
 import sys
-    
+
 from goatools.obo_parser import GODag, GOTerm
 import numpy as np
 import pandas as pd
@@ -16,7 +15,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import requests
 from scipy.stats import fisher_exact
-import scipy.cluster.hierarchy as sch
+
 from statsmodels.sandbox.stats.multicomp import multipletests
 
 
@@ -27,7 +26,7 @@ OBOCACHE = None
 
 
 CONF = dict(
-    organism = 'mouse',
+    organism='mouse',
     datadir='~/data/brainmad',
     gene2go='gene_association.mgi',
     figloc="~/data/BrainMaidLight/go_enrichment_studies/images", )
@@ -44,6 +43,7 @@ def _downloader(url, target, refresh):
             for block in response.iter_content(4096):
                 F.write(block)
 
+
 def get_data_path(fn):
     return os.path.join(os.path.expanduser(
         CONF['datadir']), fn)
@@ -56,7 +56,7 @@ def get_go_obo(refresh=False):
     obopath = get_data_path('go-basic.obo')
 
     _downloader('http://purl.obolibrary.org/obo/go/go-basic.obo',
-                obopath, refresh)        
+                obopath, refresh)
 
     obopickle = get_data_path('go-basic.obo.pickle')
 
@@ -78,15 +78,16 @@ def get_go_obo(refresh=False):
 @functools.lru_cache()
 def get_g2g(refresh=False):
     organism = CONF['organism']
-    
+
     if organism == 'mouse':
         organism = 'mgi'
     if organism == 'human':
         organism = 'goa_human'
 
     lg.debug("organism: %s" % organism)
-    
-    url = "http://geneontology.org/gene-associations/gene_association.%s.gz" % organism
+
+    url = ("http://geneontology.org/gene-associations/" +
+           "gene_association.%s.gz" % organism)
     g2g_name = "gene_association.%s" % organism
     gene2go = get_data_path(g2g_name + '.gz')
 
@@ -105,7 +106,7 @@ def get_g2g(refresh=False):
     if os.path.exists(g2g_map_pickle) \
             and os.path.exists(g2g_gen_pickle) \
             and os.path.exists(g2g_raw_pickle):
-            
+
         raw = pd.read_pickle(g2g_raw_pickle)
         with open(g2g_map_pickle, 'rb') as F:
             mapping = pickle.load(F)
@@ -139,7 +140,7 @@ def get_go_genes(gocat, children=False):
 
     if isinstance(gocat, GOTerm):
         gocat = gocat.id
-        
+
     allterms = set([gocat])
     g2g, _, _ = get_g2g()
 
@@ -161,17 +162,16 @@ def get_go_genes(gocat, children=False):
     return genes
 
 
-
 def calc_enrichment(gset, gocat, children=True, refset=None,
                     force_case=False):
-    
+
     _, _, allgenes = get_g2g()
 
     if isinstance(gocat, (list, set)):
-        goset = gocat
+        goset = set(gocat)
     else:
         goset = get_go_genes(gocat, children=children)
-    
+
     if refset is None:
         refset = allgenes
 
@@ -181,42 +181,70 @@ def calc_enrichment(gset, gocat, children=True, refset=None,
         refset = {x.upper() for x in refset}
 
     gset = set(gset)
-    gset &= refset
-    goset &= refset
 
+    refset |= gset
+    refset |= goset
+
+    gg = gset & goset
     a = len(gset & goset)
     b = len(gset)
     c = len(goset)
     d = len(refset)
 
-    lg.debug("abcd %d %d %d %d" % (a,b,c,d))
-    if a == b == 0: lor = 0  # math.log2( 1 / (c/d) )
-    elif a == 0: lor = -np.inf
-    elif b == 0: raise Exception("Universe collapse")
-    else: lor = math.log2((a / b) / (c / d))
-        
-    feor, pv = fisher_exact([[a, b], [c, d]])
-        
-    slp = -math.log10(pv) if lor > 0 else math.log10(pv)
+    lg.debug("abcd %d %d %d %d" % (a, b, c, d))
+    if a == b == 0:
+        lor = 0  # math.log2( 1 / (c/d) )
+    elif a == 0:
+        lor = -np.inf
+    elif b == 0:
+        raise Exception("Universe collapse")
+    else:
+        lor = math.log2((a / b) / (c / d))
 
-    rv = dict(set_obs = int(a), set_size = b, pop_obs = c,
-              pop_size = d, lor = lor, slp = slp, pv = pv)
+    feor, pv = fisher_exact([[a, b], [c, d]])
+
+    try:
+        if lor > 0:
+            slp = -math.log10(pv) if pv > 0 else 10
+        elif lor < 0:
+            slp = math.log10(pv) if pv > 0 else -10
+        else:
+            slp = 0
+    except ValueError:
+        print('error: slp calc: pv lor a b c d', pv, lor, a, b, c, d)
+        
+        raise
+
+    rv = dict(set_obs=int(a), set_size=b, pop_obs=c,
+              pop_size=d, lor=lor, slp=slp, pv=pv,
+              genes = gg)
 
     return pd.Series(rv)
 
-def calc_matrix(sets, goterms, genesets = None, force_case=False):
+
+def calc_matrix(sets, goterms, genesets=None, force_case=False):
     rv = []
-    if genesets is None:
-        genesets = {}
+
+    obo = get_go_obo()
     for name, s in sets.items():
         for g in goterms:
-            d = calc_enrichment(s, g, force_case = force_case)
+            if isinstance(g, str):
+                g = obo[g]
+            d = calc_enrichment(s, g, force_case=force_case)
             d['setname'] = name
             d['gocat'] = g.id
+            d['type'] = 'go'
             rv.append(d)
+
         for gsetname, gset in genesets.items():
-            
+            d = calc_enrichment(s, gset, force_case=force_case)
+            d['setname'] = name
+            d['gocat'] = gsetname
+            d['type'] = 'gset'
+            rv.append(d)
+
     rv = pd.concat(rv, axis=1).T
+
     return(rv)
 
 
@@ -224,7 +252,7 @@ def calc_matrix_gsets(sets, gsets, force_case=False):
     rv = []
     for setname, geneset in gsets.items():
         for name, s in sets.items():
-            d = calc_enrichment(s, geneset, force_case = force_case)
+            d = calc_enrichment(s, geneset, force_case=force_case)
             d['setname'] = name
             d['gocat'] = geneset
             rv.append(d)
@@ -232,32 +260,36 @@ def calc_matrix_gsets(sets, gsets, force_case=False):
     return(rv)
 
 
+def enrichment_plot(mat, colorder=False, rowsets=None,
+                    termsplit=None, genesets={}, figsize=(16, 24),
+                    vlines=[], plot_lor_text=False, show_signif=True):
 
+    plt.figure(figsize=figsize)
 
+    if 'padj' not in mat:
+        mat['padj'] = multipletests(mat['pv'], method='fdr_bh')[1]
 
+    orig_roworder = mat.sort_values(by=['type', 'slp'], inplace=False)\
+                    ['gocat'].drop_duplicates()
 
-def enrichment_plot(mat, colorder=False, roworder=False, termsplit=None,
-                    genesets = {} ):
-    
-    plt.figure(figsize=(6,14))
-
-    mat['padj'] = multipletests(mat['pv'], method='fdr_bh')[1]
+    rowsets = copy.deepcopy(rowsets)
 
     d = dict(
-        lor = mat.pivot(index='gocat', columns='setname', values='lor'),
-        slp = mat.pivot(index='gocat', columns='setname', values='slp'),
-        pv = mat.pivot(index='gocat', columns='setname', values='pv'),
-        set_obs = mat.pivot(index='gocat', columns='setname', values='set_obs'),
-        pop_obs = mat.pivot(index='gocat', columns='setname', values='pop_obs'),
-        set_size = mat.pivot(index='gocat', columns='setname', values='set_size'),
-        padj = mat.pivot(index='gocat', columns='setname', values='padj'),
-        )
+        lor=mat.pivot(index='gocat', columns='setname', values='lor'),
+        slp=mat.pivot(index='gocat', columns='setname', values='slp'),
+        pv=mat.pivot(index='gocat', columns='setname', values='pv'),
+        set_obs=mat.pivot(index='gocat', columns='setname', values='set_obs'),
+        pop_obs=mat.pivot(index='gocat', columns='setname', values='pop_obs'),
+        set_size=mat.pivot(index='gocat', columns='setname',
+                           values='set_size'),
+        padj=mat.pivot(index='gocat', columns='setname', values='padj'),
+    )
 
     cmap = sns.diverging_palette(220, 20, n=7, as_cmap=True)
-    
+
     obo = get_go_obo()
-    
-    #cap lor matrix
+
+    # cap lor matrix
     vmin = (d['lor'].replace(-np.inf, 0).min().min())
     vmax = (d['lor'].replace(np.inf, 0).max().max())
     vmin, vmax = min(vmin, -vmax), max(-vmin, vmax)
@@ -265,15 +297,29 @@ def enrichment_plot(mat, colorder=False, roworder=False, termsplit=None,
     d['lor'].replace(-np.inf, vmin, inplace=True)
     d['lor'].replace(np.inf, vmax, inplace=True)
 
+    observed_cats = list(mat['gocat'].drop_duplicates())
 
-    if colorder is False:
-        colorder = sorted(list(d['slp'].columns))
-    if roworder is False:
-        roworder = sorted(list(d['slp'].index))
-
-    wrd = sch.linkage(d['lor'], method='average', metric='euclidean')
-    dnd = sch.dendrogram(wrd, no_plot=True, labels=d['lor'].index)
-    roworder = dnd['ivl']
+    cats_seen = set()
+    
+    if rowsets is not None:
+        new_roworder = []
+        for sname in rowsets:
+            observed_slist = []
+            for x in rowsets[sname]:
+                if x in cats_seen:
+                    continue
+                if x in observed_cats:
+                    observed_slist.append(x)
+                cats_seen.add(x)
+#            observed_slist = list(d['lor'].loc[observed_slist]
+#                                  .sort_values(by=colorder[0], inplace=False,
+#                                               ascending=False).index)
+            rowsets[sname] = observed_slist
+            new_roworder.extend(observed_slist)
+                  
+        roworder = new_roworder
+    else:
+        roworder = orig_roworder
 
     for k, v in d.items():
         d[k] = v.loc[roworder, colorder]
@@ -282,22 +328,48 @@ def enrichment_plot(mat, colorder=False, roworder=False, termsplit=None,
                    cmap=cmap, vmin=vmin, vmax=vmax)
 
     pop_obs = d['pop_obs'].max(1)
+
+    yticks = []
+
+    for y in roworder:
+        setsize = pop_obs[y].max()
+        if y in obo:
+            s = '%s %s (%d)' % (obo[y].name, y, setsize)
+
+        else:
+            s = '%s (%d)' % (y, setsize)
+        yticks.append(s)
         
-    yticks = [ '%s (%d)' % (obo[x].name, pop_obs[x]) for x in roworder]
-    plt.yticks(0.5+np.arange(len(roworder)),
-                            yticks)
+    plt.yticks(0.5 + np.arange(len(roworder)), yticks)
 
     set_size = d['set_size'].max()
-    xticks = ['%s (%d)' % (x, set_size[x]) for x in colorder]
-    plt.xticks(0.5+np.arange(len(colorder)),
-               xticksman, rotation=90)
 
-    
+    xticks = ['%s (%d)' % (x, set_size.get(x, -1)) for x in colorder]
+    plt.xticks(0.5 + np.arange(len(colorder)),
+               xticks, rotation=90)
+
     plt.colorbar()
-    
-    plt.xlim(0, d['lor'].shape[1])
+
+    plt.xlim(0, (1.05 * d['lor'].shape[1]))
+    x_labloc = 1.01 * d['lor'].shape[1]
     plt.ylim(0, d['lor'].shape[0])
 
+    for vl in vlines:
+        plt.axvline(vl, c='darkgrey')
+        
+    if rowsets is not None:
+        yloc = 0
+        last_yloc = 0
+        for i, (sn, s) in enumerate(rowsets.items()):
+            sl = len(s)
+            yloc += sl
+            plt.text(x_labloc, last_yloc+0.1, sn, rotation=90,
+                     va='bottom')
+            if i+1 < len(rowsets):
+                plt.axhline(yloc, color='black', lw=0.5)
+            last_yloc = yloc
+
+#    return d['set_obs']
     for i, (gocat, row) in enumerate(d['padj'].iterrows()):
         for j, (rowname, p) in enumerate(row.iteritems()):
             if p < 0.001:
@@ -307,78 +379,30 @@ def enrichment_plot(mat, colorder=False, roworder=False, termsplit=None,
             elif p < 0.05:
                 ptxt = '*'
 
-            if p < 0.05:
-                plt.text(j+0.05, i+0.5, ptxt, fontsize=12, va='center')
-                tcolor='black'
-            else:
-                tcolor='grey'
+            if not show_signif is True:
+                ptxt = ''
                 
-            so = '%d' % d['set_obs'].loc[gocat, rowname]
+            if p < 0.05:
+                plt.text(j + 0.05, i + 0.5, ptxt, fontsize=12, va='center')
+                tcolor = 'black'
+                tfontsize = 8
+            else:
+                tcolor = 'black'
+                tfontsize = 7
+
+            try:
+                so = '%d' % d['set_obs'].loc[gocat, rowname]
+            except:
+                so = '-1'
+#                print('error gettings setobs for %s / %s' % (gocat, rowname))
+#                return d['set_obs']
+            
             lor = '%.2f' % d['lor'].loc[gocat, rowname]
-            plt.text(j+0.95, i+0.5, so, ha='right', va='center', color=tcolor)
-            plt.text(j+0.5, i+0.5, lor, ha='center', va='center', color=tcolor)
 
-#        for j, col in gocat
+            plt.text(j + 0.95, i + 0.5, so, ha='right',
+                     va='center', color=tcolor, fontsize=tfontsize)
+            if plot_lor_text:
+                plt.text(j + 0.5, i + 0.5, lor, ha='center',
+                     va='center', color=tcolor, fontsize=tfontsize)
+
     return d
-
-# enrichment_plot(enrichment_matrix,
-#                 colorder=setorder,
-#                 roworder=[x.id for x in goterms],
-#                 termsplit=gotermsplit,
-#                                )
-
-
-
-# def matrix_plot(mat, colorder=False, roworder=False, termsplit=None):
-#     plt.figure(figsize=(10,14))
-#     lor = mat.pivot(index='gocat', columns='setname', values='lor')
-#     slp = mat.pivot(index='gocat', columns='setname', values='slp')
-#     pv = mat.pivot(index='gocat', columns='setname', values='pv')
-
-#     obo = get_go_obo()
-    
-#     cmap = sns.diverging_palette(220, 20, n=7, as_cmap=True)
-
-
-#     vmin = (lor.replace(-np.inf, 0).min().min())
-#     vmax = (lor.replace(np.inf, 0).max().max())
-#     vmin, vmax = min(vmin, -vmax), max(-vmin, vmax)
-#     slp[slp == -np.inf] = vmin * 1.1
-#     slp[slp == np.inf] = vmax * 1.1
-
-#     if colorder is False:
-#         colorder = sorted(list(slp.columns))
-#         slp = slp[colorder]
-#         lor = lor[colorder]
-#         pv = pv[colorder]
-        
-#     if roworder is False:
-#         roworder = sorted(list(slp.index))
-#         slp = slp.loc[roworder]
-#         lor = lor.loc[roworder]
-#         pv = pv.loc[roworder]
-
-#     elif roworder == 'cluster':
-#         from scipy.cluster.hierarchy import linkage, fcluster
-#         dmat = slp.corr(slp)
-#         print('dmat', dmat)
-        
-#     #cap lor matrix
-#     vmin = (lor.replace(-np.inf, 0).min().min())
-#     vmax = (lor.replace(np.inf, 0).max().max())
-#     vmin, vmax = min(vmin, -vmax), max(-vmin, vmax)
-            
-#     plt.pcolormesh(lor.fillna(0).as_matrix(),
-#                    cmap=cmap, vmin=vmin, vmax=vmax)
-    
-#     yticks = [obo[x].name for x in roworder]
-#     plt.yticks(0.5+np.arange(len(roworder)),
-#                yticks)
-            
-#     plt.xticks(0.5+np.arange(len(slp.columns)),
-#                list(slp.columns), rotation=90)
-#     plt.colorbar()
-            
-#     print(lor.shape)
-#     plt.xlim(0, lor.shape[1])
-#     plt.ylim(0, lor.shape[0])
