@@ -81,7 +81,7 @@ def add_biomart_data(qset, df, column,
     gd = biomart_get_query(gdq)
     prep_rv_raw = gd[[index_column, column]].drop_duplicates()
     prep_rv = prep_rv_raw.set_index(index_column).copy()
-
+    in
     if not prep_rv.index.is_unique:
         def _join_fields(r):
             return aggfunc(r)
@@ -92,7 +92,6 @@ def add_biomart_data(qset, df, column,
     rv = prep_rv.loc[list(df.index)]
     df[column] = rv
 
-    
 def get_default_biomartquery(qset, attributes=[]):
     bq = BiomartQuery(qset)
     bq.add_attribute("ensembl_gene_id")
