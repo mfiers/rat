@@ -17,11 +17,6 @@ GSEA_DB = dict(
 
 def _check_gsea(cachedir):
     gd = cachedir.glob('my_analysis.GseaPreranked.*')
-<<<<<<< HEAD
-    if len(gd) == 0:
-        return False
-    assert(len(gd) == 1)
-=======
 
     if len(gd) == 0:
         return False
@@ -30,7 +25,6 @@ def _check_gsea(cachedir):
         print('error dir: %s' % gd)
         return False
     
->>>>>>> 451d9033169fcc98e8cf50390964f2a33541f565
     gd = gd[0]
     for rf in gd.glob('gsea_report_for_*.xls'):
         d = pd.read_csv(rf, sep="\t")
@@ -39,12 +33,6 @@ def _check_gsea(cachedir):
         d.columns = '_ _ _ size es nes pval qval fwer rank_at_max _ _'.split()
         del d['_']
         d['cachedir'] = cachedir
-<<<<<<< HEAD
-        d['slp'] = -np.sign(d['nes']) * np.log10(d['pval'])
-        d.loc[d['slp'] < -10, 'slp'] = -10
-        d.loc[d['slp'] > 10, 'slp'] = 10
-        return d
-=======
         import warnings
         with warnings.catch_warnings():
             warnings.filterwarnings('error')
@@ -59,7 +47,6 @@ def _check_gsea(cachedir):
         return d
     
     return False
->>>>>>> 451d9033169fcc98e8cf50390964f2a33541f565
 
 def ipy_set2rank(*args, **kwargs):
     d = set2rank(*args, **kwargs)
@@ -67,16 +54,6 @@ def ipy_set2rank(*args, **kwargs):
     ccd = cd.glob('my_analysis.*')[0]
     img = ccd.glob('enplot_*.png')[0]
     return img, d
-<<<<<<< HEAD
-    
-def set2rank(rnk, gset,
-    outpath='~/data/rat/gsea_output',
-    gseajar="~/bin/gsea2-2.2.1.jar",
-    force=False):
-
-    outpath = Path(outpath).expanduser()
-    gseajar = Path(gseajar).expanduser()
-=======
 
 
 
@@ -86,10 +63,10 @@ def set2rank(
         gseajar="~/bin/gsea2-2.2.1.jar",
         force=False):
 
+    
     outpath = Path(outpath).expanduser()
     gseajar = Path(gseajar).expanduser()
     
->>>>>>> 451d9033169fcc98e8cf50390964f2a33541f565
     gset = frozenset(gset)
 
     rnk = rnk.sort_values()
@@ -101,27 +78,6 @@ def set2rank(
     
     if force:
         cachedir.rmtree()
-<<<<<<< HEAD
-        
-    cachedir.makedirs_p()
-    
-    rv = _check_gsea(cachedir)
-    if not rv is False:
-        return rv
-    
-    rnkfile = cachedir / 'rank.rnk'
-    if not rnkfile.exists():
-        with open(rnkfile, 'w') as F:
-            F.write(txtrnk)
-
-    gsetfile = cachedir / 'gset.gmx'
-    if not gsetfile.exists():
-        with open(gsetfile, 'w') as F:
-            F.write("gset\nna\n")
-            F.write("\n".join(gset))
-            F.write("\n")
-
-=======
         
     cachedir.makedirs_p()
     
@@ -190,7 +146,6 @@ def set2rank2(args):
 
     cachedir.makedirs_p()
         
->>>>>>> 451d9033169fcc98e8cf50390964f2a33541f565
     cl = ("""-cp %s 
             -Xmx2048m xtools.gsea.GseaPreranked 
             -gmx %s -collapse false 
@@ -203,10 +158,6 @@ def set2rank2(args):
             -set_min 5 -zip_report false
             -out %s -gui false """ % (
                 gseajar, gsetfile, rnkfile, cachedir)).split()
-<<<<<<< HEAD
-    java(*cl)
-    return _check_gsea(cachedir)
-=======
 
     #print('run', " ".join(cl))
     java(*cl)#, _out = str(cachedir / 'gsea.out'),
@@ -214,7 +165,6 @@ def set2rank2(args):
     
     return fix_rv(_check_gsea(cachedir))
 
->>>>>>> 451d9033169fcc98e8cf50390964f2a33541f565
 
 
 def run(rnk, database,
