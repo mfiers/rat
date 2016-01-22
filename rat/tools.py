@@ -92,7 +92,10 @@ def add_biomart_data(qset, df, column,
     rv = prep_rv.loc[list(df.index)]
     df[column] = rv
 
+<<<<<<< HEAD
     
+=======
+>>>>>>> 451d9033169fcc98e8cf50390964f2a33541f565
 def get_default_biomartquery(qset, attributes=[]):
     bq = BiomartQuery(qset)
     bq.add_attribute("ensembl_gene_id")

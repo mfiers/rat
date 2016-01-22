@@ -11,9 +11,6 @@ import sys
 from goatools.obo_parser import GODag, GOTerm
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import requests
 from scipy.stats import fisher_exact
 
 from statsmodels.sandbox.stats.multicomp import multipletests
@@ -29,6 +26,11 @@ CONF = dict(
     organism='mouse',
     datadir='~/data/brainmad',
     gene2go='gene_association.mgi',
+    analysis_dir='~/data/BrainMaidLight/go_enrichment_studies/',
+    targetdbs="""diana mirdb rnahybrid targetscan
+                miranda mirwalk starbase""".split(),
+    targetsets="""RT RT_gsea_legs RT_pool_legs T
+                   T_gsea_legs T_pool_legs""".split(),
     figloc="~/data/BrainMaidLight/go_enrichment_studies/images", )
 
 
@@ -43,18 +45,15 @@ def _downloader(url, target, refresh):
             for block in response.iter_content(4096):
                 F.write(block)
 
-
 def get_data_path(fn):
     return os.path.join(os.path.expanduser(
         CONF['datadir']), fn)
 
-
 @functools.lru_cache()
-def get_go_obo(refresh=False):
+def get_go_obo():
     sys.setrecursionlimit(500000)
 
     obopath = get_data_path('go-basic.obo')
-
     _downloader('http://purl.obolibrary.org/obo/go/go-basic.obo',
                 obopath, refresh)
 
@@ -91,17 +90,17 @@ def get_g2g(refresh=False):
     g2g_name = "gene_association.%s" % organism
     gene2go = get_data_path(g2g_name + '.gz')
 
-    # load the gene2go mapping
-    _downloader(url, gene2go, refresh)
 
+@functools.lru_cache()
+def get_g2g():
+    # load the gene2go mapping
+    g2g_name = CONF['gene2go']
+    
     g2g_map_pickle = get_data_path(g2g_name + '.pickle')
     g2g_gen_pickle = get_data_path(g2g_name + '.allgenes.pickle')
     g2g_raw_pickle = get_data_path(g2g_name + '.raw.pickle')
+    gene2go = get_data_path(g2g_name)
 
-    lg.debug("pickle files:")
-    lg.debug(" - " + g2g_map_pickle)
-    lg.debug(" - " + g2g_gen_pickle)
-    lg.debug(" - " + g2g_raw_pickle)
 
     if os.path.exists(g2g_map_pickle) \
             and os.path.exists(g2g_gen_pickle) \
@@ -116,8 +115,7 @@ def get_g2g(refresh=False):
 
     colnames = '_ _ name _ go_acc'.split() + ['_'] * 12
 
-    raw = pd.read_csv(gene2go, sep="\t", comment='!', names=colnames, index_col=False,
-                      compression='gzip')
+    raw = pd.read_csv(gene2go, sep="\t", comment='!', names=colnames, index_col=False)
     raw = raw[['name', 'go_acc']].dropna()
     raw.to_pickle(g2g_raw_pickle)
 
@@ -174,18 +172,14 @@ def calc_enrichment(gset, gocat, children=True, refset=None,
 
     if refset is None:
         refset = allgenes
-
-    if force_case:
-        gset = {x.upper() for x in gset}
-        goset = {x.upper() for x in goset}
-        refset = {x.upper() for x in refset}
-
+        
     gset = set(gset)
 
     refset |= gset
     refset |= goset
 
     gg = gset & goset
+
     a = len(gset & goset)
     b = len(gset)
     c = len(goset)
@@ -406,3 +400,19 @@ def enrichment_plot(mat, colorder=False, rowsets=None,
                      va='center', color=tcolor, fontsize=tfontsize)
 
     return d
+# =======
+    
+#     if permutate:
+#         pool = ThreadPool()
+#         cerunner = functools.partial(calc_enrichment, gocat=gocat, children=children,
+#                                      refset=refset, permutate=None)
+#         gsets = [set(random.sample(refset, len(gset))) for x in range(permutate)]
+#         pr = pd.DataFrame(pool.map(cerunner, gsets))
+#         pool.close()
+#         pool.join()
+
+#         rv['pval_bootstrap'] = (1 + pr['pv'].sort(inplace=False).searchsorted(pv, side='right')[0]) \
+#           / (permutate+1)
+
+#     return pd.Series(rv)
+# >>>>>>> 451d9033169fcc98e8cf50390964f2a33541f565

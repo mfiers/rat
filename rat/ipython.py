@@ -47,6 +47,7 @@ def zip_parse(html_file):
         summfile = [x for x in Z.namelist()
                if x.endswith("summary.txt")][0]
         datafile = summfile.replace('summary.txt', 'fastqc_data.txt')
+        
         summ = Z.read(summfile).decode('ASCII')
         data = Z.read(datafile).decode('ASCII')
 
@@ -99,5 +100,13 @@ def fastqc_display_dir(path, ignore = []):
     zsumm, zdata = zip(*[zip_parse(x) for x in html_files])
     zsumm = {a: b for (a, b) in zip(html_files, zsumm)}
     zdata = {a: b for (a, b) in zip(html_files, zdata)}
-    return pd.DataFrame(zdata).T, HTML(Template(fqc_out).render(
+
+    rv = pd.DataFrame(zdata).T
+    rvs = pd.DataFrame(zsumm).T
+
+    rv = pd.concat([rv, rvs], axis=1)
+
+    rv.columns = "fastqc_" + rv.columns.to_series().replace(' ', '_')
+    
+    return rv, HTML(Template(fqc_out).render(
         dict(names=html_files, data=zdata, summ=zsumm, fqcols = FQCOLUMNS)))

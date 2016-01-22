@@ -17,9 +17,20 @@ GSEA_DB = dict(
 
 def _check_gsea(cachedir):
     gd = cachedir.glob('my_analysis.GseaPreranked.*')
+<<<<<<< HEAD
     if len(gd) == 0:
         return False
     assert(len(gd) == 1)
+=======
+
+    if len(gd) == 0:
+        return False
+
+    if not len(gd) == 1:
+        print('error dir: %s' % gd)
+        return False
+    
+>>>>>>> 451d9033169fcc98e8cf50390964f2a33541f565
     gd = gd[0]
     for rf in gd.glob('gsea_report_for_*.xls'):
         d = pd.read_csv(rf, sep="\t")
@@ -28,10 +39,27 @@ def _check_gsea(cachedir):
         d.columns = '_ _ _ size es nes pval qval fwer rank_at_max _ _'.split()
         del d['_']
         d['cachedir'] = cachedir
+<<<<<<< HEAD
         d['slp'] = -np.sign(d['nes']) * np.log10(d['pval'])
         d.loc[d['slp'] < -10, 'slp'] = -10
         d.loc[d['slp'] > 10, 'slp'] = 10
         return d
+=======
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings('error')
+            try:
+                d['slp'] = -np.sign(d['nes']) * np.log10(d['pval'])
+            except RuntimeWarning:
+                if d['pval'][0] == 0:
+                    d['slp'] = d['nes'] * 100
+            
+        d.loc[d['slp'] < -10, 'slp'] = -10
+        d.loc[d['slp'] > 10, 'slp'] = 10
+        return d
+    
+    return False
+>>>>>>> 451d9033169fcc98e8cf50390964f2a33541f565
 
 def ipy_set2rank(*args, **kwargs):
     d = set2rank(*args, **kwargs)
@@ -39,6 +67,7 @@ def ipy_set2rank(*args, **kwargs):
     ccd = cd.glob('my_analysis.*')[0]
     img = ccd.glob('enplot_*.png')[0]
     return img, d
+<<<<<<< HEAD
     
 def set2rank(rnk, gset,
     outpath='~/data/rat/gsea_output',
@@ -47,6 +76,20 @@ def set2rank(rnk, gset,
 
     outpath = Path(outpath).expanduser()
     gseajar = Path(gseajar).expanduser()
+=======
+
+
+
+def set2rank(
+        rnk, gset,
+        cachedir="~/data/rat/gsea_output",
+        gseajar="~/bin/gsea2-2.2.1.jar",
+        force=False):
+
+    outpath = Path(outpath).expanduser()
+    gseajar = Path(gseajar).expanduser()
+    
+>>>>>>> 451d9033169fcc98e8cf50390964f2a33541f565
     gset = frozenset(gset)
 
     rnk = rnk.sort_values()
@@ -58,12 +101,37 @@ def set2rank(rnk, gset,
     
     if force:
         cachedir.rmtree()
+<<<<<<< HEAD
         
     cachedir.makedirs_p()
     
     rv = _check_gsea(cachedir)
     if not rv is False:
         return rv
+    
+    rnkfile = cachedir / 'rank.rnk'
+    if not rnkfile.exists():
+        with open(rnkfile, 'w') as F:
+            F.write(txtrnk)
+
+    gsetfile = cachedir / 'gset.gmx'
+    if not gsetfile.exists():
+        with open(gsetfile, 'w') as F:
+            F.write("gset\nna\n")
+            F.write("\n".join(gset))
+            F.write("\n")
+
+=======
+        
+    cachedir.makedirs_p()
+    
+    rv = _check_gsea(cachedir)
+    if isinstance(rv, pd.DataFrame):
+        return rv
+
+    if cachedir.exists():
+        cachedir.rmtree()
+    cachedir.makedirs_p()
     
     rnkfile = cachedir / 'rank.rnk'
     if not rnkfile.exists():
@@ -90,7 +158,63 @@ def set2rank(rnk, gset,
             -out %s -gui false """ % (
                 gseajar, gsetfile, rnkfile, cachedir)).split()
     java(*cl)
+    rv = _check_gsea(cachedir)
+    if isinstance(rv, pd.DataFrame):
+        return rv
+    
+    return set2rank(rnk, gset, outpath, gseajar, force=True)
+
+
+def set2rank2(args):
+
+    rnkfile = Path(args['rnkfile']).expanduser()
+    gsetfile = Path(args['gsetfile']).expanduser()
+    cachedir = Path(args['cachedir']).expanduser()
+    gseajar = Path(args['gseajar']).expanduser()
+
+    def fix_rv(rv):
+        rv['gset'] = str(gsetfile.basename()).replace(".grp", '')
+        rv['gset_type'] = str(gsetfile.dirname().basename())
+        rv['rank'] = str(rnkfile.basename()).replace(".rnk", '')
+        rv['rank_type'] = str(rnkfile.dirname().basename())
+        del rv['cachedir']
+        return rv
+        
+    if os.path.exists(cachedir):
+        rv = _check_gsea(cachedir)
+        if rv is False:
+            cachedir.rmtree()
+        else:
+            assert isinstance(rv, pd.DataFrame)
+            return fix_rv(rv)
+
+    cachedir.makedirs_p()
+        
+>>>>>>> 451d9033169fcc98e8cf50390964f2a33541f565
+    cl = ("""-cp %s 
+            -Xmx2048m xtools.gsea.GseaPreranked 
+            -gmx %s -collapse false 
+            -mode Max_probe -norm meandiv 
+            -nperm 1000 -rnk %s
+            -scoring_scheme weighted -rpt_label my_analysis
+            -include_only_symbols true
+            -make_sets true -plot_top_x 1
+            -rnd_seed timestamp -set_max 9999
+            -set_min 5 -zip_report false
+            -out %s -gui false """ % (
+                gseajar, gsetfile, rnkfile, cachedir)).split()
+<<<<<<< HEAD
+    java(*cl)
     return _check_gsea(cachedir)
+=======
+
+    #print('run', " ".join(cl))
+    java(*cl)#, _out = str(cachedir / 'gsea.out'),
+         #_err = str(cachedir / 'gsea.err'))
+    
+    return fix_rv(_check_gsea(cachedir))
+
+>>>>>>> 451d9033169fcc98e8cf50390964f2a33541f565
 
 
 def run(rnk, database,
