@@ -32,6 +32,12 @@ fqc_out = """
 """
 
 def zip_parse(html_file):
+    """Helper function to parse a fastqc zip output file
+
+    :param html_file: the html file for which the associated zip
+      file needs to be parsed
+    :returns: two dictionaries: summary of stats, results of fqc tests
+    """
     zpf = html_file.replace('.html', '.zip')
     summhead = []
     datahead = []
@@ -41,6 +47,7 @@ def zip_parse(html_file):
         summfile = [x for x in Z.namelist()
                if x.endswith("summary.txt")][0]
         datafile = summfile.replace('summary.txt', 'fastqc_data.txt')
+        
         summ = Z.read(summfile).decode('ASCII')
         data = Z.read(datafile).decode('ASCII')
 
@@ -80,7 +87,12 @@ Adapter Content
 Kmer Content""".split("\n")
 
 def fastqc_display_dir(path, ignore = []):
+    """Returns iPython-HTML summarizing a folder of fastqc outputs
 
+    :param path: Path containing a number of fastqc output html/zips
+    :returns: ipython.core.display.HTML object
+    """
+    
     html_files = set(glob.glob(os.path.join(path, '*.html')))
     html_files -= set(ignore)
     html_files = list(sorted(html_files))
@@ -88,5 +100,13 @@ def fastqc_display_dir(path, ignore = []):
     zsumm, zdata = zip(*[zip_parse(x) for x in html_files])
     zsumm = {a: b for (a, b) in zip(html_files, zsumm)}
     zdata = {a: b for (a, b) in zip(html_files, zdata)}
-    return pd.DataFrame(zdata).T, HTML(Template(fqc_out).render(
+
+    rv = pd.DataFrame(zdata).T
+    rvs = pd.DataFrame(zsumm).T
+
+    rv = pd.concat([rv, rvs], axis=1)
+
+    rv.columns = "fastqc_" + rv.columns.to_series().replace(' ', '_')
+    
+    return rv, HTML(Template(fqc_out).render(
         dict(names=html_files, data=zdata, summ=zsumm, fqcols = FQCOLUMNS)))
