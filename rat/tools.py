@@ -1,12 +1,35 @@
 
 import hashlib
 import os
+import matplotlib.pyplot as plt
+
 import xml.etree.cElementTree as ET
 
 import requests
 import pandas as pd
 
 CACHEDIR = os.path.expanduser('~/.cache/rat/biomart_query')
+
+
+def threewayplot(matrix):
+    """
+          A (1, 1)
+
+
+
+     B (0,0)    C (0, 2)
+
+    
+
+    """
+    color = matrix['color']
+    datacols = list(sorted(list(set(matrix.columns) - set(['color']))))
+    data = matrix[datacols]
+    a, b, c = datacols
+    print(data.head())
+    data = data.subtract(data.min(0), axis=1)
+    data = data.divide(data.max(0), axis=1)
+    print(data.head())
 
 
 def _get_cachedir():
@@ -58,7 +81,7 @@ def add_biomart_data(qset, df, column,
     gd = biomart_get_query(gdq)
     prep_rv_raw = gd[[index_column, column]].drop_duplicates()
     prep_rv = prep_rv_raw.set_index(index_column).copy()
-    in
+
     if not prep_rv.index.is_unique:
         def _join_fields(r):
             return aggfunc(r)
