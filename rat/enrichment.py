@@ -11,9 +11,6 @@ import sys
 from goatools.obo_parser import GODag, GOTerm
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import requests
 from scipy.stats import fisher_exact
 
 from statsmodels.sandbox.stats.multicomp import multipletests
@@ -29,6 +26,11 @@ CONF = dict(
     organism='mouse',
     datadir='~/data/brainmad',
     gene2go='gene_association.mgi',
+    analysis_dir='~/data/BrainMaidLight/go_enrichment_studies/',
+    targetdbs="""diana mirdb rnahybrid targetscan
+                miranda mirwalk starbase""".split(),
+    targetsets="""RT RT_gsea_legs RT_pool_legs T
+                   T_gsea_legs T_pool_legs""".split(),
     figloc="~/data/BrainMaidLight/go_enrichment_studies/images", )
 
 
@@ -48,13 +50,11 @@ def get_data_path(fn):
     return os.path.join(os.path.expanduser(
         CONF['datadir']), fn)
 
-
 @functools.lru_cache()
-def get_go_obo(refresh=False):
+def get_go_obo():
     sys.setrecursionlimit(500000)
 
     obopath = get_data_path('go-basic.obo')
-
     _downloader('http://purl.obolibrary.org/obo/go/go-basic.obo',
                 obopath, refresh)
 
@@ -91,17 +91,17 @@ def get_g2g(refresh=False):
     g2g_name = "gene_association.%s" % organism
     gene2go = get_data_path(g2g_name + '.gz')
 
-    # load the gene2go mapping
-    _downloader(url, gene2go, refresh)
 
+@functools.lru_cache()
+def get_g2g():
+    # load the gene2go mapping
+    g2g_name = CONF['gene2go']
+    
     g2g_map_pickle = get_data_path(g2g_name + '.pickle')
     g2g_gen_pickle = get_data_path(g2g_name + '.allgenes.pickle')
     g2g_raw_pickle = get_data_path(g2g_name + '.raw.pickle')
+    gene2go = get_data_path(g2g_name)
 
-    lg.debug("pickle files:")
-    lg.debug(" - " + g2g_map_pickle)
-    lg.debug(" - " + g2g_gen_pickle)
-    lg.debug(" - " + g2g_raw_pickle)
 
     if os.path.exists(g2g_map_pickle) \
             and os.path.exists(g2g_gen_pickle) \
@@ -116,8 +116,7 @@ def get_g2g(refresh=False):
 
     colnames = '_ _ name _ go_acc'.split() + ['_'] * 12
 
-    raw = pd.read_csv(gene2go, sep="\t", comment='!', names=colnames, index_col=False,
-                      compression='gzip')
+    raw = pd.read_csv(gene2go, sep="\t", comment='!', names=colnames, index_col=False)
     raw = raw[['name', 'go_acc']].dropna()
     raw.to_pickle(g2g_raw_pickle)
 
@@ -174,16 +173,13 @@ def calc_enrichment(gset, gocat, children=True, refset=None,
 
     if refset is None:
         refset = allgenes
-
-    if force_case:
-        gset = {x.upper() for x in gset}
-        goset = {x.upper() for x in goset}
-        refset = {x.upper() for x in refset}
-
+        
     gset = set(gset)
 
     refset |= gset
     refset |= goset
+
+    gg = gset & goset
 
     a = len(gset & goset)
     b = len(gset)
@@ -215,7 +211,8 @@ def calc_enrichment(gset, gocat, children=True, refset=None,
         raise
 
     rv = dict(set_obs=int(a), set_size=b, pop_obs=c,
-              pop_size=d, lor=lor, slp=slp, pv=pv)
+              pop_size=d, lor=lor, slp=slp, pv=pv,
+              genes = gg)
 
     return pd.Series(rv)
 
@@ -260,7 +257,7 @@ def calc_matrix_gsets(sets, gsets, force_case=False):
 
 def enrichment_plot(mat, colorder=False, rowsets=None,
                     termsplit=None, genesets={}, figsize=(16, 24),
-                    vlines=[], plot_lor_text=False):
+                    vlines=[], plot_lor_text=False, show_signif=True):
 
     plt.figure(figsize=figsize)
 
@@ -309,9 +306,9 @@ def enrichment_plot(mat, colorder=False, rowsets=None,
                 if x in observed_cats:
                     observed_slist.append(x)
                 cats_seen.add(x)
-            observed_slist = list(d['lor'].loc[observed_slist]
-                                  .sort_values(by=colorder[0], inplace=False,
-                                               ascending=False).index)
+#            observed_slist = list(d['lor'].loc[observed_slist]
+#                                  .sort_values(by=colorder[0], inplace=False,
+#                                               ascending=False).index)
             rowsets[sname] = observed_slist
             new_roworder.extend(observed_slist)
                   
@@ -341,7 +338,8 @@ def enrichment_plot(mat, colorder=False, rowsets=None,
 
     set_size = d['set_size'].max()
 
-    xticks = ['%s (%d)' % (x, set_size[x]) for x in colorder]
+    xticks = ['%s (%d)' % (x, set_size.get(x, -1)) for x in colorder]
+
     plt.xticks(0.5 + np.arange(len(colorder)),
                xticks, rotation=90)
 
@@ -376,6 +374,9 @@ def enrichment_plot(mat, colorder=False, rowsets=None,
             elif p < 0.05:
                 ptxt = '*'
 
+            if not show_signif is True:
+                ptxt = ''
+                
             if p < 0.05:
                 plt.text(j + 0.05, i + 0.5, ptxt, fontsize=12, va='center')
                 tcolor = 'black'
@@ -387,8 +388,7 @@ def enrichment_plot(mat, colorder=False, rowsets=None,
             try:
                 so = '%d' % d['set_obs'].loc[gocat, rowname]
             except:
-                print('error gettings setobs for %s / %s' % (gocat, rowname))
-                return d['set_obs']
+                so = '-1'
             
             lor = '%.2f' % d['lor'].loc[gocat, rowname]
 
