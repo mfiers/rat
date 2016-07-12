@@ -35,6 +35,7 @@ CONF = dict(
 
 
 def _downloader(url, target, refresh):
+    import requests
     if refresh or not os.path.exists(target):
         with open(target, 'wb') as F:
             lg.info("downloading: %s" % url)
@@ -51,7 +52,7 @@ def get_data_path(fn):
         CONF['datadir']), fn)
 
 @functools.lru_cache()
-def get_go_obo():
+def get_go_obo(refresh=False):
     sys.setrecursionlimit(500000)
 
     obopath = get_data_path('go-basic.obo')
@@ -75,10 +76,14 @@ def get_go_obo():
     return obo_dag
 
 
-@functools.lru_cache()
-def get_g2g(refresh=False):
-    organism = CONF['organism']
+# @functools.lru_cache()
+# def get_g2g(refresh=False):
 
+@functools.lru_cache()
+def get_g2g(refresh=True):
+
+    organism = CONF['organism']
+    print(organism)
     if organism == 'mouse':
         organism = 'mgi'
     if organism == 'human':
@@ -90,19 +95,12 @@ def get_g2g(refresh=False):
            "gene_association.%s.gz" % organism)
     g2g_name = "gene_association.%s" % organism
     gene2go = get_data_path(g2g_name + '.gz')
-
-
-@functools.lru_cache()
-def get_g2g():
-    # load the gene2go mapping
-    g2g_name = CONF['gene2go']
+    _downloader(url, gene2go, refresh)
     
     g2g_map_pickle = get_data_path(g2g_name + '.pickle')
     g2g_gen_pickle = get_data_path(g2g_name + '.allgenes.pickle')
     g2g_raw_pickle = get_data_path(g2g_name + '.raw.pickle')
-    gene2go = get_data_path(g2g_name)
-
-
+    
     if os.path.exists(g2g_map_pickle) \
             and os.path.exists(g2g_gen_pickle) \
             and os.path.exists(g2g_raw_pickle):
@@ -221,6 +219,9 @@ def calc_matrix(sets, goterms, genesets=None, force_case=False):
     rv = []
 
     obo = get_go_obo()
+    if genesets is None:
+        genesets = {}
+        
     for name, s in sets.items():
         for g in goterms:
             if isinstance(g, str):
@@ -231,6 +232,7 @@ def calc_matrix(sets, goterms, genesets=None, force_case=False):
             d['type'] = 'go'
             rv.append(d)
 
+        
         for gsetname, gset in genesets.items():
             d = calc_enrichment(s, gset, force_case=force_case)
             d['setname'] = name

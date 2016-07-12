@@ -9,6 +9,31 @@ import zipfile
 from jinja2 import Template
 from IPython.core.display import HTML
 import pandas as pd
+import seaborn as sns
+
+from ipywidgets import interact, IntSlider, FloatSlider
+from functools import partial
+
+def _find_palette(start, rot, gamma, dark, light):
+        chp = partial(sns.cubehelix_palette, start=start, rot=rot,
+                      gamma=gamma, dark=dark, light=light)
+        print(("cmap = sns.cubehelix_palette(start=%(start)s, "
+               "rot=%(rot)s, gamma=%(gamma)s, dark=%(dark)s, "
+               "light=%(light)s)")  % locals())
+        sns.palplot(chp())
+        return chp(as_cmap=True)
+    
+def choose_cmap():
+    fs = partial(FloatSlider, min=0.0, step=0.05)
+    return  interact(
+        _find_palette,
+        start=fs(max=4.0, value=0.2),
+        rot=fs(max=4., value=1.),
+        gamma=fs(max=3, value=0.8),
+        dark=fs(max=1., value=0.3),
+        light=fs(max=1., value=0.6))
+
+
 
 fqc_out = """
 <table style="border:0px;"><tr style="border:0px; margin: 0px;">

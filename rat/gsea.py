@@ -61,19 +61,22 @@ def set2rank(
         rnk, gset,
         cachedir="~/data/rat/gsea_output",
         gseajar="~/bin/gsea2-2.2.1.jar",
-        force=False):
+        force=False, verbose=False):
 
     
-    outpath = Path(outpath).expanduser()
+    outpath = Path(cachedir).expanduser()
     gseajar = Path(gseajar).expanduser()
     
     gset = frozenset(gset)
-
+    if verbose:
+        print("no genes: %d", len(gset))
+        
     rnk = rnk.sort_values()
     txtrnk = "\n".join(['%s\t%s' %(a,b) for a, b in rnk.iteritems()])
 
     uid = str(abs(hash(gset))) + "_" + str(abs(hash(txtrnk)))
-
+    if verbose:
+        print("UID: %s", uid)
     cachedir = outpath / uid
     
     if force:
@@ -123,13 +126,13 @@ def set2rank(
 
 def set2rank2(args):
 
-    rnkfile = Path(args['rnkfile']).expanduser()
-    gsetfile = Path(args['gsetfile']).expanduser()
-    cachedir = Path(args['cachedir']).expanduser()
-    gseajar = Path(args['gseajar']).expanduser()
+    rnkfile = Path(args['rnkfile']).expanduser().abspath()
+    gsetfile = Path(args['gsetfile']).expanduser().abspath()
+    cachedir = Path(args['cachedir']).expanduser().abspath()
+    gseajar = Path(args['gseajar']).expanduser().abspath()
 
     def fix_rv(rv):
-        rv['gset'] = str(gsetfile.basename()).replace(".grp", '')
+        rv['gset'] = str(gsetfile.basename()).replace(".grp", '').replace(".list", '')
         rv['gset_type'] = str(gsetfile.dirname().basename())
         rv['rank'] = str(rnkfile.basename()).replace(".rnk", '')
         rv['rank_type'] = str(rnkfile.dirname().basename())
@@ -145,7 +148,12 @@ def set2rank2(args):
             return fix_rv(rv)
 
     cachedir.makedirs_p()
-        
+
+    if '.list' in gsetfile:
+        grpfile = cachedir / (gsetfile.basename().replace('.list', '.grp'))
+        os.symlink(gsetfile, grpfile)
+        gsetfile = grpfile
+
     cl = ("""-cp %s 
             -Xmx2048m xtools.gsea.GseaPreranked 
             -gmx %s -collapse false 
@@ -155,16 +163,20 @@ def set2rank2(args):
             -include_only_symbols true
             -make_sets true -plot_top_x 1
             -rnd_seed timestamp -set_max 9999
-            -set_min 5 -zip_report false
+            -set_min 4 -zip_report false
             -out %s -gui false """ % (
                 gseajar, gsetfile, rnkfile, cachedir)).split()
 
-    #print('run', " ".join(cl))
-    java(*cl)#, _out = str(cachedir / 'gsea.out'),
-         #_err = str(cachedir / 'gsea.err'))
-    
-    return fix_rv(_check_gsea(cachedir))
 
+    import sh
+    
+    try:
+        java(*cl)#, _out = str(cachedir / 'gsea.out'),
+         #_err = str(cachedir / 'gsea.err'))
+    except sh.ErrorReturnCode_1:
+        return False
+        
+    return fix_rv(_check_gsea(cachedir))
 
 
 def run(rnk, database,

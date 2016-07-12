@@ -6,6 +6,29 @@ import pandas as pd
 import numpy as np
 import rpy2
 
+
+    
+def voom(counts):
+
+    from rpy2.robjects import pandas2ri
+    from rpy2.robjects.packages import importr
+    import rpy2.robjects as ro
+    r = ro.r
+
+    pandas2ri.activate()
+    
+    limma = importr('limma')
+    edgeR = importr('edgeR')
+
+    dge = r.DGEList(counts=counts)
+    dge = r.calcNormFactors(dge)
+    vv = r.voom(dge, design=r('NULL'), plot=False)
+
+    norm = pd.DataFrame(np.matrix(vv.rx2('E')))
+    norm.index = vv.rx2('E').rownames
+    norm.columns = counts.columns
+    return norm
+
     
 def run_simple(A, B):
 
