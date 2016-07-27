@@ -96,11 +96,11 @@ def get_g2g(refresh=True):
     g2g_name = "gene_association.%s" % organism
     gene2go = get_data_path(g2g_name + '.gz')
     _downloader(url, gene2go, refresh)
-    
+
     g2g_map_pickle = get_data_path(g2g_name + '.pickle')
     g2g_gen_pickle = get_data_path(g2g_name + '.allgenes.pickle')
     g2g_raw_pickle = get_data_path(g2g_name + '.raw.pickle')
-    
+
     if os.path.exists(g2g_map_pickle) \
             and os.path.exists(g2g_gen_pickle) \
             and os.path.exists(g2g_raw_pickle):
@@ -158,6 +158,43 @@ def get_go_genes(gocat, children=False):
     genes = set(g2g[g2g['go_acc'].isin(allterms)]['name'])
     return genes
 
+def set_fisher(sets1, sets2, allgenes = None):
+
+    if allgenes is None:
+        allgenes = set()
+        for k1, s1 in sets1.items():
+            allgenes |= set(s1)
+        for k2, s2 in sets2.items():
+            allgenes |= set(s2)
+    else:
+        allgenes = set(allgenes)
+
+    rv = []
+    for k1, s1 in sets1.items():
+        s1 = set(s1) & allgenes
+        for k2, s2 in sets2.items():
+            s2 = set(s2) & allgenes
+
+            a = s1 & s2
+            b = s1 - a
+            c = s2 - a
+            d = allgenes - (s1 | s2)
+            oddsratio, pval = fisher_exact(
+                [[len(a), len(b)],
+                 [len(c), len(d)]],
+                 alternative='two-sided')
+            rv.append(pd.Series(dict(
+                a=len(a), b=len(b), c=len(c), d=len(d),
+                len1 = len(s1), s1=k1,
+                len2=len(s2), s2=k2,
+                reference = len(allgenes),
+                oddsratio = oddsratio, pval=pval
+            )))
+
+    rv = pd.DataFrame(rv)
+    rv['padj_bh'] = multipletests(rv['pval'], method='fdr_bh')[1]
+    rv['padj_bonf'] = multipletests(rv['pval'], method='bonferroni')[1]
+    return rv
 
 def calc_enrichment(gset, gocat, children=True, refset=None,
                     force_case=False):
@@ -171,7 +208,7 @@ def calc_enrichment(gset, gocat, children=True, refset=None,
 
     if refset is None:
         refset = allgenes
-        
+
     gset = set(gset)
 
     refset |= gset
@@ -205,7 +242,7 @@ def calc_enrichment(gset, gocat, children=True, refset=None,
             slp = 0
     except ValueError:
         print('error: slp calc: pv lor a b c d', pv, lor, a, b, c, d)
-        
+
         raise
 
     rv = dict(set_obs=int(a), set_size=b, pop_obs=c,
@@ -221,7 +258,7 @@ def calc_matrix(sets, goterms, genesets=None, force_case=False):
     obo = get_go_obo()
     if genesets is None:
         genesets = {}
-        
+
     for name, s in sets.items():
         for g in goterms:
             if isinstance(g, str):
@@ -232,7 +269,7 @@ def calc_matrix(sets, goterms, genesets=None, force_case=False):
             d['type'] = 'go'
             rv.append(d)
 
-        
+
         for gsetname, gset in genesets.items():
             d = calc_enrichment(s, gset, force_case=force_case)
             d['setname'] = name
@@ -297,7 +334,7 @@ def enrichment_plot(mat, colorder=False, rowsets=None,
     observed_cats = list(mat['gocat'].drop_duplicates())
 
     cats_seen = set()
-    
+
     if rowsets is not None:
         new_roworder = []
         for sname in rowsets:
@@ -313,7 +350,7 @@ def enrichment_plot(mat, colorder=False, rowsets=None,
 #                                               ascending=False).index)
             rowsets[sname] = observed_slist
             new_roworder.extend(observed_slist)
-                  
+
         roworder = new_roworder
     else:
         roworder = orig_roworder
@@ -353,7 +390,7 @@ def enrichment_plot(mat, colorder=False, rowsets=None,
 
     for vl in vlines:
         plt.axvline(vl, c='darkgrey')
-        
+
     if rowsets is not None:
         yloc = 0
         last_yloc = 0
@@ -378,7 +415,7 @@ def enrichment_plot(mat, colorder=False, rowsets=None,
 
             if not show_signif is True:
                 ptxt = ''
-                
+
             if p < 0.05:
                 plt.text(j + 0.05, i + 0.5, ptxt, fontsize=12, va='center')
                 tcolor = 'black'
@@ -391,7 +428,7 @@ def enrichment_plot(mat, colorder=False, rowsets=None,
                 so = '%d' % d['set_obs'].loc[gocat, rowname]
             except:
                 so = '-1'
-            
+
             lor = '%.2f' % d['lor'].loc[gocat, rowname]
 
             plt.text(j + 0.95, i + 0.5, so, ha='right',
