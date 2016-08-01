@@ -24,6 +24,10 @@ def spca(m, **kwargs):
     return pd.DataFrame(_pca, index=m.index)
 
 @app.task
+def anyfunc(func, *args, **kwargs):
+    return func(*args, **kwargs)
+
+@app.task
 def add(x, y):
     return x + y
 
