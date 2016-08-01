@@ -66,7 +66,7 @@ def fastqc_zip(app, args):
             for i, l in enumerate(mod):
                 ls = l.split()
                 key = 'overrepresented_seq_%02d' % (i+1)
-                print('%s\t%s\n%s_count\t%s\n%s_perc\t%s' % (
+                print('%s\t%s\n%s_count\t%s\n%s_percent\t%s' % (
                     key, ls[0], key, ls[1], key, ls[1]))
                 if i > 5:
                     break

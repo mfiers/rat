@@ -36,7 +36,7 @@ def samtools_idxstats(app, args):
 
             if chrom == '*':
                 chrom = 'star'
-            
+
             print("mapped_%s\t%d" % (chrom, mapped))
             if not chrom == 'star':
                 print("mapped_per_mb_%s\t%.4g" % (chrom, (1e6 * (mapped / length))))

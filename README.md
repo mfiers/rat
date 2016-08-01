@@ -1,6 +1,7 @@
 # rat
-Random set of tools for RNAseq analysis from iPython
 
-You may find more information here:
+Random set of tools around (RNAseq) analysis and iPython
 
-https://rat-pythonr-rna-tools.readthedocs.org/en/latest/#
+You might find more information here:
+
+https://rat-python-rna-tools.readthedocs.org/en/latest/#
