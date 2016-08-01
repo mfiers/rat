@@ -6,7 +6,7 @@ from sklearn.decomposition import PCA
 from sklearn.cluster import MeanShift, estimate_bandwidth
 from scipy.stats import pearsonr
 
- 
+
 BROKER = 'redis://:muffins1@localhost:6379/0'
 BACKEND = 'redis://:muffins1@localhost:6379/0'
 BROKER_TRANSPORT_OPTIONS = {'fanout_patterns': True}
@@ -15,9 +15,8 @@ BROKER_TRANSPORT_OPTIONS = {'fanout_prefix': True}
 app = Celery('tasks', broker=BROKER, backend=BACKEND)
 app.conf.CELERYD_POOL_RESTARTS = True
 
-import rat.scatac 
+import rat.scatac
 
-    
 @app.task
 def spca(m, **kwargs):
     """ Run a PCA """
@@ -39,4 +38,7 @@ def pearson(a, b):
 
 @app.task
 def pd_row_pearson(m, b):
+    """
+    apply pearson across a pandas table (row-wise)
+    """
     return m.apply(pearson, axis=1, b=b)
