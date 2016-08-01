@@ -13,10 +13,11 @@ BROKER_TRANSPORT_OPTIONS = {'fanout_patterns': True}
 BROKER_TRANSPORT_OPTIONS = {'fanout_prefix': True}
 
 app = Celery('tasks', broker=BROKER, backend=BACKEND)
+app.conf.CELERYD_POOL_RESTARTS = True
 
 import rat.scatac 
 
-
+    
 @app.task
 def spca(m, **kwargs):
     """ Run a PCA """
@@ -33,5 +34,9 @@ def tsne(m, **kwargs):
     return pd.DataFrame(t, index=m.index)
 
 @app.task
-def pearson(m, a, b):
+def pearson(a, b):
     return pearsonr(a, b)[0]
+
+@app.task
+def pd_row_pearson(m, b):
+    return m.apply(pearson, axis=1, b=b)
