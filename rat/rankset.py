@@ -21,7 +21,7 @@ def rnkload(rnkfile):
 
 def gsetload(gsetfile):
     return frozenset(open(gsetfile).read().split())
-                    
+
 def qscore(rnk, gs):
     q = pd.Series( -1/(len(rnk) - len(gs)), index=rnk.index)
     q.loc[gs] = 1 / len(gs)
@@ -37,7 +37,7 @@ def qscore_random(i, lrnk, lgs):
 
 def qscore_sample(lrnk, lgs, no):
 #    lg.setLevel(logging.DEBUG)
-    dbkey = '%d_%d_%d' % (lrnk, lgs, no) 
+    dbkey = '%d_%d_%d' % (lrnk, lgs, no)
 #    lg.debug('qscore sample dbkey: %s' % dbkey)
     cdir = Path('~/.cache/rat/qscore').expanduser()
     cdir.makedirs_p()
@@ -52,12 +52,12 @@ def qscore_sample(lrnk, lgs, no):
                 v = db[dbkey].split(b'_')
                 #Slg.debug('qscore sample found cached: %s', v)
                 return float(v[0]), float(v[1])
-    
+
     qscore_partial = partial(qscore_random, lrnk=lrnk, lgs=lgs)
     with mp.Pool(50) as P:
         r = P.map(qscore_partial, range(no))
     r = pd.Series(r)
-    
+
     mean, std = r.mean(), r.std()
 
     with lock:
@@ -78,12 +78,13 @@ def qscore_p(rnk, gs):
     return dict(q=q, z=z, p=ph0, qg=qg, slp=slp, len_gs=len(gs))
 
 
-def gsetvis(gset, rnk, no_samplings=1000, ax=None, figsize=(6,1.5)):
+def gsetvis(gset, rnk, no_samplings=1000, ax=None,
+            figsize=(6,1.5), silent=False, title=""):
     palette = sns.color_palette('muted', n_colors=4)
     if ax is None:
         plt.figure(figsize=figsize)
         ax = plt.gca()
-    r = rnk
+    r = rnk.sort_values()
     r2 = r / rnk.abs().quantile(0.95)
     g = gset & set(rnk.index)
     x = np.arange(len(rnk))
@@ -94,8 +95,7 @@ def gsetvis(gset, rnk, no_samplings=1000, ax=None, figsize=(6,1.5)):
     ax.plot(x, 0.1 + (0.05 * gp), lw=0.12, color='black')
     ax.plot(x, 0.05 + (0.05 * gp), lw=0.25, color='black')
     ax.plot(x, 0 + (0.05 * gp), lw=0.5, color='black')
-    print(len(r), r.head())
-    gpr = pd.rolling_mean(gp, window=len(r)/20, center=True)
+    gpr = gp.rolling(window=int(len(r)/20), center=True).mean()
     gpr = gpr / gpr.max()
     ax.plot(x, gpr, color='black', zorder=2, lw=1)
     from matplotlib import cm
@@ -109,15 +109,13 @@ def gsetvis(gset, rnk, no_samplings=1000, ax=None, figsize=(6,1.5)):
     ax.set_xlim(0, len(r))
     ax.axhline(0.5, color='black', lw=1, ls=':', zorder=2)
     ax.set_ylim(0, 1)
-    title = 'q %.2g | z %.2g | p %.2g | slp %.2g' % (
+    if title:
+        title += " "
+    title += 'q %.2g | z %.2g | p %.2g | slp %.2g' % (
         qp['q'], qp['z'], qp['p'], qp['slp'] )
 
     ax.set_title(title)
-
-    print('len rank: %10d  | len gset: %10d' % (len(r),  len(g)))
-    print('q sum   : %10.3f  | q z     : %10.3f' % (qp['q'], qp['z']))
-    print('p       : %10.3g  | slp     : %10.3g' % (qp['p'], qp['slp']))
-
-#    plt.suptitle('%s %s' % (rnk, gset))
-
-
+    if not silent:
+        print('len rank: %10d  | len gset: %10d' % (len(r),  len(g)))
+        print('q sum   : %10.3f  | q z     : %10.3f' % (qp['q'], qp['z']))
+        print('p       : %10.3g  | slp     : %10.3g' % (qp['p'], qp['slp']))

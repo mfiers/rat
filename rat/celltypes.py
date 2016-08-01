@@ -241,7 +241,7 @@ def signature(gene_signature,
     if plot is True:
         plot = 'signature_score'
 
-    if ax is False:
+    if (ax is False) or (ax is None):
         ax = plt.gca()
 
     if merge_samples:
