@@ -1,4 +1,4 @@
-
+import time
 from celery import Celery
 import pandas as pd
 from sklearn.manifold import TSNE
@@ -42,3 +42,10 @@ def pd_row_pearson(m, b):
     apply pearson across a pandas table (row-wise)
     """
     return m.apply(pearson, axis=1, b=b)
+
+@app.task
+def sleep():
+    """
+    apply pearson across a pandas table (row-wise)
+    """
+    time.sleep(5)

@@ -10,8 +10,8 @@ from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 from sklearn.cluster import MeanShift, estimate_bandwidth
 
-BROKER = 'redis://:muffins1@localhost:6379/0'
-BACKEND = 'redis://:muffins1@localhost:6379/0'
+BROKER = 'redis://:muffins1@r10n1:6379/0'
+BACKEND = 'redis://:muffins1@r10n1:6379/0'
 BROKER_TRANSPORT_OPTIONS = {'fanout_patterns': True,
                             'fanout_prefix': True}
 app = Celery('tasks', broker=BROKER, backend=BACKEND)
