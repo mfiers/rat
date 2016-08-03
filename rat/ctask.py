@@ -6,11 +6,17 @@ from sklearn.decomposition import PCA
 from sklearn.cluster import MeanShift, estimate_bandwidth
 from scipy.stats import pearsonr
 import marshal
+import os
 
-BROKER = 'redis://:muffins1@r10n1:6379/0'
-BACKEND = 'redis://:muffins1@r10n1:6379/0'
+
+#BROKER = 'redis://:muffins1@r10n1:6379/0'
+#BACKEND = 'redis://:muffins1@r10n1:6379/0'
+BROKER = os.environ['CELERY_BROKER']
+BACKEND = os.environ['CELERY_BACKEND']
 BROKER_TRANSPORT_OPTIONS = {'fanout_patterns': True}
 BROKER_TRANSPORT_OPTIONS = {'fanout_prefix': True}
+
+
 
 app = Celery('tasks', broker=BROKER, backend=BACKEND)
 app.conf.CELERYD_POOL_RESTARTS = True
@@ -39,7 +45,7 @@ def runscript(script):
     P = sp.Popen(script, stdout=sp.PIPE, stderr=sp.PIPE, shell=True)
     output, errors = P.communicate()
     return output, errors
-    
+
 @app.task
 def add(x, y):
     return x + y
@@ -77,6 +83,16 @@ def pd_row_ols(m, model):
     """
     import statsmodels.api as sm
     return m.apply(lambda x: sm.OLS(x, model).fit(), axis=1)
+
+@app.task
+def miRNA_effect_estimator_2(counts, mirow, signature, parameter):
+    mimod = pd.DataFrame(dict(
+        mirna = mirow,
+        signature = signature,
+        constant = 1))
+    rv = rat.ctask.pd_row_ols(counts, mimod)
+    rv = rv.apply(lambda x: x.params[parameter])
+    return rv
 
 @app.task
 def sleep():
