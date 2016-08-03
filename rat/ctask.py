@@ -1,4 +1,5 @@
 import time
+import functools
 from celery import Celery
 import pandas as pd
 from sklearn.manifold import TSNE
@@ -84,8 +85,15 @@ def pd_row_ols(m, model):
     import statsmodels.api as sm
     return m.apply(lambda x: sm.OLS(x, model).fit(), axis=1)
 
+@functools.lru_cache(128)
+def get_count_file(url):
+    import pickle
+    import requests
+    return pickle.load(requests.get(url, stream=True, verify=False).raw)
+
 @app.task
-def miRNA_effect_estimator_2(counts, mirow, signature, parameter):
+def miRNA_effect_estimator_2(mirow, signature, parameter, countfileurl):
+    counts = get_count_file(countfileurl)
     mimod = pd.DataFrame(dict(
         mirna = mirow,
         signature = signature,
