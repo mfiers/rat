@@ -91,7 +91,8 @@ def get_count_file(url):
     import requests
     return pickle.load(requests.get(url, stream=True, verify=False).raw)
 
-@app.task
+
+@app.task(time_limit=80)
 def miRNA_effect_estimator_2(mirow, signature, parameter, countfileurl):
     counts = get_count_file(countfileurl)
     mimod = pd.DataFrame(dict(
