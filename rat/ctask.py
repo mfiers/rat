@@ -34,6 +34,13 @@ def anyfunc(fstr, *args, **kwargs):
     return f(*args, **kwargs)
 
 @app.task
+def runscript(script):
+    import subprocess as sp
+    P = sp.Popen(script, stdout=sp.PIPE, stderr=sp.PIPE, shell=True)
+    output, errors = P.communicate()
+    return output, errors
+    
+@app.task
 def add(x, y):
     return x + y
 
@@ -53,12 +60,23 @@ def pd_row_pearson(m, b):
     """
     return m.apply(pearson, axis=1, b=b)
 
+from celery.signals import worker_process_init
+from multiprocessing import current_process
+
+@worker_process_init.connect
+def fix_multiprocessing(**kwargs):
+    try:
+        current_process()._config
+    except AttributeError:
+        current_process()._config = {'semprefix': '/mp'}
+
 @app.task
 def pd_row_ols(m, model):
     """
     apply OLS across a pandas table (row-wise)
     """
-    return sm.OLS(row, model).fit()
+    import statsmodels.api as sm
+    return m.apply(lambda x: sm.OLS(x, model).fit(), axis=1)
 
 @app.task
 def sleep():

@@ -4,7 +4,7 @@ import seaborn as sns
 import random
 import pandas as pd
 import numpy as np
-from dask import dataframe as dd
+#from dask import dataframe as dd
 from scipy.stats import pearsonr
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -54,30 +54,30 @@ def signature_data_plot(sd):
       + gg.geom_point(size=15) + gg.scale_color_gradient(low='yellow', high='red') \
       + gg.scale_x_log() + gg.scale_x_continuous(limits=(0.5, 10000)) \
       + gg.scale_y_log() + gg.scale_y_continuous(limits=(0.05, 10000))
-
-def get_signature_set_data(m, select):
-
-    template = pd.DataFrame(index=m.columns)
-    template['celltype'] = 0
-    template.loc[select, 'celltype'] = 1
-    template = sm.add_constant(template)
-
-    def pearson_r(col, B):
-        return pd.Series(pearsonr(col, B)[0])
-
-    dm = dd.from_pandas(m, npartitions=100)
-    rp = dm.apply(pearson_r, B=template['celltype'], axis=1, columns=['rp']).compute()
-    rv = pd.DataFrame(dict(pearson_r=rp['rp']), index=m.index)
-    rv['set_exp'] =  m.loc[:,select].mean(1)
-    rv['not_exp'] =  m.loc[:,~select].mean(1)
-    minv = min(rv['set_exp'][rv['set_exp']>0].min(),
-               rv['not_exp'][rv['not_exp']>0].min())
-
-    rv['lfc'] = np.log2( (rv['set_exp'] + (0.01 * minv)) \
-                    / ( rv['not_exp'] + (0.01 * minv)) )
-
-    rv['all_exp'] =  m.mean(1)
-    return rv
+#
+# def get_signature_set_data(m, select):
+#
+#     template = pd.DataFrame(index=m.columns)
+#     template['celltype'] = 0
+#     template.loc[select, 'celltype'] = 1
+#     template = sm.add_constant(template)
+#
+#     def pearson_r(col, B):
+#         return pd.Series(pearsonr(col, B)[0])
+#
+#     dm = m.copy() # dd.from_pandas(m, npartitions=100)
+#     rp = dm.apply(pearson_r, B=template['celltype'], axis=1, columns=['rp']).compute()
+#     rv = pd.DataFrame(dict(pearson_r=rp['rp']), index=m.index)
+#     rv['set_exp'] =  m.loc[:,select].mean(1)
+#     rv['not_exp'] =  m.loc[:,~select].mean(1)
+#     minv = min(rv['set_exp'][rv['set_exp']>0].min(),
+#                rv['not_exp'][rv['not_exp']>0].min())
+#
+#     rv['lfc'] = np.log2( (rv['set_exp'] + (0.01 * minv)) \
+#                     / ( rv['not_exp'] + (0.01 * minv)) )
+#
+#     rv['all_exp'] =  m.mean(1)
+#     return rv
 
 
 def get_signature_set(m, select, mean_expr_cutoff=100,
