@@ -206,6 +206,8 @@ def ptm(template, match, mask=[]):
     return stats.pearsonr(template, match)
 
 @app.task
-def add(x, y):
-    return x + y
+def anyTask(fun, *args):
+    import dill as pickle
+    f = pickle.loads(fun)
+    return f(*args)
 
