@@ -9,21 +9,9 @@ from scipy.stats import pearsonr
 import marshal
 import os
 
+import rat.celery_core
 
-#BROKER = 'redis://:muffins1@r10n1:6379/0'
-#BACKEND = 'redis://:muffins1@r10n1:6379/0'
-BROKER = os.environ['CELERY_BROKER']
-BACKEND = os.environ['CELERY_BACKEND']
-BROKER_TRANSPORT_OPTIONS = {'fanout_patterns': True}
-BROKER_TRANSPORT_OPTIONS = {'fanout_prefix': True}
-
-
-
-app = Celery('tasks', broker=BROKER, backend=BACKEND)
-app.conf.CELERYD_POOL_RESTARTS = True
-app.conf.CELERYD_CONCURRENCY = 11
-
-import rat.scatac
+app = rat.celery_core.get_celery_app()
 
 @app.task
 def spca(m, **kwargs):

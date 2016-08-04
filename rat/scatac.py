@@ -3,6 +3,7 @@ Module for working with scATAC-seq data.
 
 Includes functions for making and counting aggregates...
 """
+import os
 
 from celery import Celery
 import pandas as pd
@@ -10,11 +11,10 @@ from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 from sklearn.cluster import MeanShift, estimate_bandwidth
 
-BROKER = 'redis://:muffins1@r10n1:6379/0'
-BACKEND = 'redis://:muffins1@r10n1:6379/0'
-BROKER_TRANSPORT_OPTIONS = {'fanout_patterns': True,
-                            'fanout_prefix': True}
-app = Celery('tasks', broker=BROKER, backend=BACKEND)
+
+import rat.celery_core
+app = rat.celery_core.get_celery_app()
+
 
 import os
 import pandas as pd
@@ -210,4 +210,3 @@ def anyTask(fun, *args):
     import dill as pickle
     f = pickle.loads(fun)
     return f(*args)
-
