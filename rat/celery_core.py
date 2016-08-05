@@ -20,4 +20,5 @@ def get_celery_app():
         _APP = Celery('tasks', broker=broker, backend=backend)
         _APP.conf.CELERYD_POOL_RESTARTS = True
         _APP.conf.CELERYD_CONCURRENCY = concurrency
+        _APP.conf.CELERY_ACKS_LATE = True
     return _APP

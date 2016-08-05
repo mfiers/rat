@@ -200,7 +200,7 @@ def signature(gene_signature,
               merge_samples=False,
               hlines = None,
               slp_cutoff=50,
-              samplify=None,
+              samplify=lambda x: x,
               verbose=False,
               plot=True):
 
