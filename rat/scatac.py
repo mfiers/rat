@@ -11,10 +11,8 @@ from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 from sklearn.cluster import MeanShift, estimate_bandwidth
 
-
 import rat.celery_core
 app = rat.celery_core.get_celery_app()
-
 
 import os
 import pandas as pd
