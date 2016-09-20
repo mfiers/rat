@@ -22,7 +22,7 @@ def _find_palette(start, rot, gamma, dark, light):
                "light=%(light)s)")  % locals())
         sns.palplot(chp())
         return chp(as_cmap=True)
-    
+
 def choose_cmap():
     fs = partial(FloatSlider, min=0.0, step=0.05)
     return  interact(
@@ -72,7 +72,7 @@ def zip_parse(html_file):
         summfile = [x for x in Z.namelist()
                if x.endswith("summary.txt")][0]
         datafile = summfile.replace('summary.txt', 'fastqc_data.txt')
-        
+
         summ = Z.read(summfile).decode('ASCII')
         data = Z.read(datafile).decode('ASCII')
 
@@ -117,7 +117,7 @@ def fastqc_display_dir(path, ignore = []):
     :param path: Path containing a number of fastqc output html/zips
     :returns: ipython.core.display.HTML object
     """
-    
+
     html_files = set(glob.glob(os.path.join(path, '*.html')))
     html_files -= set(ignore)
     html_files = list(sorted(html_files))
@@ -132,6 +132,6 @@ def fastqc_display_dir(path, ignore = []):
     rv = pd.concat([rv, rvs], axis=1)
 
     rv.columns = "fastqc_" + rv.columns.to_series().replace(' ', '_')
-    
+
     return rv, HTML(Template(fqc_out).render(
         dict(names=html_files, data=zdata, summ=zsumm, fqcols = FQCOLUMNS)))

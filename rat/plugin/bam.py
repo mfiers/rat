@@ -15,7 +15,6 @@ def flagstat(app, args):
             if not line:
                 continue
 
-            
             ls = line.split(None, 3)
             key = ls[3].split('(')[0].strip().replace(' ', '_').lower()
             val = ls[0]
@@ -29,10 +28,18 @@ def samtools_idxstats(app, args):
     with open(ixf) as F:
         for line in F:
             line = line.strip()
-            if not line: continue
+
+            if not line:
+                continue
 
             chrom, length, mapped, unmapped = line.split("\t")
             length, mapped = int(length), int(mapped)
+
+            if 'GL45' in chrom:
+                continue
+
+            if 'JH58' in chrom:
+                continue
 
             if chrom == '*':
                 chrom = 'star'
@@ -42,7 +49,7 @@ def samtools_idxstats(app, args):
                 print("mapped_per_mb_%s\t%.4g" % (chrom, (1e6 * (mapped / length))))
 
 
-            
+
 @leip.arg('statfile')
 @leip.command
 def samtools_stats(app, args):
@@ -53,7 +60,7 @@ def samtools_stats(app, args):
     with open(bsf) as F:
         for line in F:
             line = line.strip()
-            
+
             if not line:
                 continue
 
@@ -69,7 +76,6 @@ def samtools_stats(app, args):
 
             if line.startswith('SN\t'):
                 print('%s\t%s' % (key, val))
-                
+
             if line.startswith('FFQ'):
                 break
-

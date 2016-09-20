@@ -17,7 +17,7 @@ def cutadapt_stats(app, args):
     def blockparser(handle):
         block = []
         title = 'head'
-        
+
         for line in handle:
             line = line.strip()
             if not line: continue
@@ -27,7 +27,7 @@ def cutadapt_stats(app, args):
                 title = line.strip('=').strip()
             else:
                 block.append(line.strip())
-                
+
     with open(sf) as F:
         for title, block in blockparser(F):
             if title == 'head':
@@ -66,12 +66,12 @@ def fastq_mcf_stats(app, args):
             line = line.strip()
             if not line:
                 continue
-            
+
             if line.startswith('Command Line'): continue
             if line.startswith('No adapters found'):
                 print("no_adapters_found\ttrue")
                 continue
-            
+
             if line.startswith('Scale used'): continue
             if line.startswith('Files'): continue
 
@@ -95,36 +95,36 @@ def fastq_mcf_stats(app, args):
                 print('trimmed\t%s' % ls[1])
                 print('average_trimmed\t%s' % ls[7])
 
-                
+
             else:
                 #lg.warning('-' * 80)
                 #lg.warning(line)
                 k, v = map(lambda x: x.strip(), line.split(':', 1))
                 k = k.lower().replace(' ', '_')
                 print('%s\t%s' % (k, v))
+#
+#
+# @leip.arg('idxfile')
+# @leip.command
+# def samtools_idxstats(app, args):
+#     ixf = args.idxfile
+#     with open(ixf) as F:
+#         for line in F:
+#             line = line.strip()
+#             if not line: continue
+#
+#             chrom, length, mapped, unmapped = line.split("\t")
+#             length, mapped = int(length), int(mapped)
+#
+#             if chrom == '*':
+#                 chrom = 'star'
+#
+#             print("mapped_%s\t%d" % (chrom, mapped))
+#             if not chrom == 'star':
+#                 print("mapped_per_mb_%s\t%.4g" % (chrom, (1e6 * (mapped / length))))
 
 
-@leip.arg('idxfile')
-@leip.command
-def samtools_idxstats(app, args):
-    ixf = args.idxfile
-    with open(ixf) as F:
-        for line in F:
-            line = line.strip()
-            if not line: continue
 
-            chrom, length, mapped, unmapped = line.split("\t")
-            length, mapped = int(length), int(mapped)
-
-            if chrom == '*':
-                chrom = 'star'
-            
-            print("mapped_%s\t%d" % (chrom, mapped))
-            if not chrom == 'star':
-                print("mapped_per_mb_%s\t%.4g" % (chrom, (1e6 * (mapped / length))))
-
-
-            
 @leip.arg('statfile')
 @leip.command
 def samtools_stats(app, args):
@@ -135,7 +135,7 @@ def samtools_stats(app, args):
     with open(bsf) as F:
         for line in F:
             line = line.strip()
-            
+
             if not line:
                 continue
 
@@ -151,7 +151,6 @@ def samtools_stats(app, args):
 
             if line.startswith('SN\t'):
                 print('%s\t%s' % (key, val))
-                
+
             if line.startswith('FFQ'):
                 break
-
