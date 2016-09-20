@@ -191,7 +191,7 @@ def ptm(template, match, mask=[]):
         List of bools to decide whether to exclude any values.
     """
     if len(template) != len(match):
-        return
+        raise IndexError("Lengths differ")
     if len(mask) > 0:
         newTemplate = []
         newMatch = []

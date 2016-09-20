@@ -272,3 +272,4 @@ def fastqc_display_dir(path, ignore=[]):
 
     return rv, HTML(Template(fqc_out).render(
         dict(names=html_files, data=zdata, summ=zsumm, fqcols=FQCOLUMNS)))
+]

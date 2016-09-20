@@ -10,6 +10,7 @@ import marshal
 import os
 
 import rat.celery_core
+import rat.scatac
 
 app = rat.celery_core.get_celery_app()
 
@@ -92,8 +93,10 @@ def miRNA_effect_estimator_2(mirow, signature, parameter, countfileurl):
     return rv
 
 @app.task
-def sleep():
+def sleep(n):
     """
-    apply pearson across a pandas table (row-wise)
+    Sleep for a bit, everyone likes sleeping...
     """
-    time.sleep(5)
+    import socket
+    time.sleep(n)
+    return socket.gethostname()
