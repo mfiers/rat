@@ -84,6 +84,7 @@ def get_signature_set_data(m, select):
         return pd.Series(pearsonr(col, B)[0])
 
     dm = dd.from_pandas(m, npartitions=100)
+    
     rp = dm.apply(
         pearson_r,
         B=template['celltype'],
@@ -91,8 +92,18 @@ def get_signature_set_data(m, select):
         meta=pd.DataFrame(columns=['rp'])).compute()
 
     rv = pd.DataFrame(dict(pearson_r=rp['rp']), index=m.index)
+
+    def row_no_zero(r):
+        return len(r[r>0])
+    
+    rv['notzero'] = m.apply(lambda x: len(x[x>0]), axis=1)
+    
+    rv['notzero_set'] = m.loc[:, select].apply(lambda x: len(x[x>0]), axis=1)
+    rv['notzero_notset'] = m.loc[:, ~select].apply(lambda x: len(x[x>0]), axis=1)
+
     rv['set_exp'] = m.loc[:, select].mean(1)
     rv['not_exp'] = m.loc[:, ~select].mean(1)
+    
     minv = min(rv['set_exp'][rv['set_exp'] > 0].min(),
                rv['not_exp'][rv['not_exp'] > 0].min())
 
