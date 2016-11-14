@@ -35,12 +35,12 @@ def makeSimulatedCell(numReads, bulkFile, name, directory, debug=False):
 
     Parameters
     ----------
-    numReads : int
+    numReads : int or list of int
         Number of reads to generate for the simulated cell.
     bulkFile : string
         String of path to BAM/SAM file of bulk sample to generate simulated
         cell from.
-    name : string
+    name : string or list of strings
         Name to give simulated cell. Automatically recieves ".sorted.bam"
         suffix and will generate index.
     directory : string
@@ -65,7 +65,9 @@ def makeSimulatedCell(numReads, bulkFile, name, directory, debug=False):
             for read in random.sample(bulkReads, numReads[num]):
                 simCell.write(read)
         pysam.sort(os.path.join(directory, sample + ".bam"),
-                   os.path.join(directory, sample + ".sorted"),
+                   '-T tmp',
+                   '-o',
+                   os.path.join(directory, sample + ".sorted.bam"),
                    catch_stdout=False)
         os.remove(os.path.join(directory, sample + ".bam"))
         pysam.index(os.path.join(directory, sample + ".sorted.bam"),
