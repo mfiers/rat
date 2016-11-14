@@ -37,6 +37,7 @@ CONF = dict(
 def _downloader(url, target, refresh):
     import requests
     if refresh or not os.path.exists(target):
+        print(target)
         with open(target, 'wb') as F:
             lg.info("downloading: %s" % url)
             lg.info("to: %s" % target)

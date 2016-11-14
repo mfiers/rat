@@ -1,7 +1,6 @@
-
 import hashlib
 import os
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 import xml.etree.cElementTree as ET
 
@@ -19,10 +18,10 @@ def threewayplot(matrix):
 
      B (0,0)    C (0, 2)
 
-    
+
 
     """
-    color = matrix['color']
+    # color = matrix['color']
     datacols = list(sorted(list(set(matrix.columns) - set(['color']))))
     data = matrix[datacols]
     a, b, c = datacols
@@ -39,7 +38,6 @@ def _get_cachedir():
 
 
 class BiomartQuery():
-
     def __init__(self, dataset):
         self.root = ET.Element(
             "Query",
@@ -49,10 +47,8 @@ class BiomartQuery():
             uniqueRows="1",
             count="",
             datasetConfigVersion="0.6")
-        self.dataset = ET.SubElement(self.root,
-                                     "Dataset",
-                                     name=dataset,
-                                     interface="default")
+        self.dataset = ET.SubElement(
+            self.root, "Dataset", name=dataset, interface="default")
         self.attribs = []
 
     def add_filter(self, name, value):
@@ -68,7 +64,9 @@ class BiomartQuery():
         return ET.tostring(self.root).decode('UTF-8')
 
 
-def add_biomart_data(qset, df, column,
+def add_biomart_data(qset,
+                     df,
+                     column,
                      index_column='external_gene_name',
                      aggfunc=lambda x: ';'.join(map(str, set(x)))):
 
@@ -79,10 +77,13 @@ def add_biomart_data(qset, df, column,
 
     gdq = get_default_biomartquery(qset, attributes=[column])
     gd = biomart_get_query(gdq)
+    print(gd.head())
+    print([index_column, column])
     prep_rv_raw = gd[[index_column, column]].drop_duplicates()
     prep_rv = prep_rv_raw.set_index(index_column).copy()
 
     if not prep_rv.index.is_unique:
+
         def _join_fields(r):
             return aggfunc(r)
 
@@ -126,20 +127,26 @@ def biomart_get_query(query):
     sha1 = hashlib.sha1()
     sha1.update(query.encode('UTF-8'))
     digest = sha1.hexdigest()
-    cachefile = os.path.join(_get_cachedir(),
-                             '{}.pickle'.format(digest))
+    cachefile = os.path.join(_get_cachedir(), '{}.pickle'.format(digest))
 
     if os.path.exists(cachefile):
-        return pd.read_pickle(cachefile)
+        rv = pd.read_pickle(cachefile)
+        return rv
 
-    url = 'http://ensembl.org/biomart/martservice?query=' + query
+    url = 'http://useast.ensembl.org/biomart/martservice?query=' + query
+
+    #    url = 'http://ensembl.org/biomart/martservice?query=' + query
     r = requests.get(url, stream=True)
     r.raw.decode_content = True
+    #    rawcsv = r.raw.read()#
+    #    print(rawcsv)#
+    #    return
 
-    
     rv = pd.read_csv(r.raw, sep="\t")
-    if not colnames is None:
-        #print(rv.columns, colnames)
+    print(rv.head())
+    if colnames is not None:
+        # print(rv.columns, colnames)
         rv.columns = colnames
+
     rv.to_pickle(cachefile)
     return rv
