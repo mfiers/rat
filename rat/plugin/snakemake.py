@@ -10,34 +10,64 @@ def sm(app, args):
     pass
 
 
+@leip.flag('-F', '--full')
 @leip.subcommand(sm, 'list')
 def smlist(app, args):
-    """ list known makefiles """
+    """ listaa known makefiles """
     mkpath = Path(__file__).dirname().dirname() / 'etc' / 'snakemake'
     mkfiles = mkpath.glob('*.sm')
-    mkfiles = [x.basename().replace('.sm', '') for x in mkfiles]
     for f in mkfiles:
-        print(f)
-
+        if args.full:
+            print(f)
+        else:
+            print(f.basename().replace('.sm', ''))
 
 @leip.command
 def smhelp(app, args):
     print('hi')
 
 
-@leip.flag('-f', '--force')
-@leip.flag('-l', '--link')
-@leip.arg('makefile_name')
-@leip.subcommand(sm, 'install')
+@leip.arg('-j', '--threads', type=int, default=8)
+@leip.arg('snakemake_template')
+@leip.subcommand(sm, 'prep')
 def sminstall(app, args):
     
     """ list known makefiles """
-    mkpath = Path(__file__).dirname().dirname() / 'etc' / 'makefiles'
-    mkfile = mkpath / ('%s.mk' % args.makefile_name)
-    mkcore = mkpath / ('_rat_core.mk')
-    config_file = Path('./config.mk')
+    smpath = Path(__file__).dirname().dirname() / 'etc' / 'snakemake'
+    smfile = smpath / ('%s.sm' % args.snakemake_template)
+    smconf = smpath / ('%s.yaml' % args.snakemake_template)
     
-    if config_file.exists():
+    if not smfile.exists():
+        print('cannot find snakemake file')
+        exit(-1)
+
+    with open('snake.sh', 'w') as F:
+        F.write("#/bin/bash\n")
+        F.write('snakemake -j %d' % (args.threads))
+        F.write(' -s %s' % (smfile))
+        #if args.target:
+        #    F.write(' %s' % args.target)
+        F.write(" $@\n")
+    Path('snake.sh').chmod('ug+x')
+    
+    if not smconf.exists():
+        return
+
+    if Path('config.yaml').exists():
+        lg.warning("config file exists, creating backup in:")
+        lg.warning("  config.%s.yaml" % args.snakemake_template)
+        smconf.copy('config.%s.yaml' % args.snakemake_template)
+    else:
+        smconf.copy('config.yaml')
+    return
+
+        
+    
+    
+    local_config_file = Path('./config.yaml')
+    
+    if local_config_file.exists():
+        lg.warning("local config exists - not overwriting")
         fix_config = False
         with open(config_file) as F:
             for line in F:
@@ -71,8 +101,6 @@ def sminstall(app, args):
                         F.write("\n# %s\n" % line[2:].strip())
                         F.write("# " + G.readline())
 
-    if not mkfile.exists():
-        print('cannot find makefile')
         
     if Path('Makefile').exists() and not args.force:
         print("Makefile exists - maybe try -f?")
@@ -96,7 +124,7 @@ def sminstall(app, args):
         else:
             mkcore.copy("rat_core.mk")
         
-    for fn in mkpath.glob('%s__*' % args.makefile_name):
+    for fn in smpath.glob('%s__*' % args.makefile_name):
         newfn = Path(fn.rsplit(args.makefile_name + '__')[-1])
         if newfn.exists():
             if args.force:

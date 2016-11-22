@@ -1,0 +1,22 @@
+
+
+
+rule stardb2:
+    input:
+        fa='genome.fa',
+        gtf='annotation.gtf'
+    output:
+         "star/SA"
+    shell: """
+         module load STAR/2.5.1b-foss-2014a
+         STAR --runThreadN {threads} \
+              --runMode genomeGenerate \
+              --genomeDir star \
+              --genomeFastaFiles {input.fa} \
+              --sjdbGTFfile {input.gtf} \
+              --sjdbOverhang 100
+         """
+
+rule stardb:
+    input:
+        rules.stardb2.output

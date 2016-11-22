@@ -11,7 +11,7 @@ if os.path.exists('./config.yaml'):
 
 config_default = dict(
     fq_extension='.fastq.gz',
-    dbdir = '/home/mf/data/genome',
+    dbdir = '/ddn1/vol1/staging/leuven/stg_00003/db',
     organism =  'mouse',
     build = 'GRCm38.rel79',
     threads = 8,
@@ -21,13 +21,12 @@ config_default = dict(
 update_config(config_default, config)
 config = config_default
 
-print(config)
 
 FASTQ_FILES = pathfinder('00.fastq/*' + config['fq_extension'])
 
 include: "./includes/fastqc.sm"
 include: "./includes/ercc.sm"
-include: "./includes/kallisto.sm"
+include: "./includes/star_se.sm"
 
 rule groups:
     input: FASTQ_FILES
@@ -44,9 +43,7 @@ rule groups:
 rule all:
     input:
         rules.groups.output,
-        rules.ercc.output,
         rules.fastqc.output,
-        rules.kallisto.output
     output:
         "test.txt"
     shell:

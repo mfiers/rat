@@ -1,0 +1,61 @@
+from rat.snakehelper import pathmapper
+
+ERCC_COUNT = pathmapper(FASTQ_FILES, '20.ercc/count/', '.fastq.gz', '.count')
+
+
+rule ercc:
+    input: counts=ERCC_COUNT,
+           groups="group.tsv"           
+    output:
+        counts = "20.ercc/ercc.tsv",
+        counts_rpm = "20.ercc/ercc_rpm.tsv",
+        grouped = "20.ercc/ercc_group.tsv",
+        grouped_rpm = "20.ercc/ercc_group_rpm.tsv",
+        stats = "20.ercc/ercc_stats.tsv",
+        plotcv = "20.ercc/ercc_stat_mean_cv.png",
+        plotcv2 = "20.ercc/ercc_stat_mean_cv2.png",
+    script: "scripts/ercc_report.py"
+
+           
+rule ercc_db:
+    params:
+        ercc_url="https://tools.thermofisher.com/content/sfs/manuals/ERCC92.zip"
+    output:
+        "20.ercc/db/ercc.1.bt2",
+        "20.ercc/db/ercc.2.bt2",
+        "20.ercc/db/ercc.3.bt2",
+        "20.ercc/db/ercc.4.bt2",
+        "20.ercc/db/ERCC92.fa",
+        "20.ercc/db/ERCC92.gtf",
+        "20.ercc/db/ercc.rev.1.bt2",
+        "20.ercc/db/ercc.rev.2.bt2",
+        "20.ercc/db/ercc.zip"
+    shell:
+        """
+        module load Bowtie2/2.2.6-foss-2014a 
+        mkdir -p 20.ercc/db
+        cd 20.ercc/db
+        wget -O ercc.zip {params.ercc_url}
+        unzip -o ercc.zip
+        bowtie2-build ERCC92.fa ercc
+        """
+
+
+rule ercc_bowtie:
+    input:
+        fq="00.fastq/{sample}.fastq.gz",
+        db=rules.ercc_db.output
+    output:
+        "20.ercc/count/{sample}.count"
+    shell:
+        r"""
+        module load Bowtie2/2.2.6-foss-2014a 
+        bowtie2 -p 12 \
+            --sensitive-local \
+            -x 20.ercc/db/ercc \
+            -U {input.fq} \
+          | samtools view -S -q 10 - \
+          | cut -f 3 | sort | uniq -c \
+	  | sed 's/ *\(.*\) \(.*\)/\2\t\1/' \
+          > {output}
+        """

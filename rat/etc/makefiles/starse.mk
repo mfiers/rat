@@ -34,6 +34,7 @@ process_counts: counts.raw.tsv counts.group.tsv
 
 counts.group.tsv counts.raw.tsv: counts/output.tsv
 	./summarize.py
+	k3 
 
 counts/output.tsv: $(BAM_FILES)
 	@mkdir -p counts
@@ -111,17 +112,6 @@ $(BAM_FILES): out/%_Aligned.sortedByCoord.out.bam: $(FASTQ_DIR)/%$(FASTQ_EXT)
 	@echo "Output bam         : " $@
 	@echo "STAR module        : " $(STAR_MODULE)
 	$(eval $@_CL := \
-			STAR \
-			  --outSAMtype BAM SortedByCoordinate \
-				--genomeLoad LoadAndKeep \
-				--genomeDir $(STAR_DB) \
-				--outFileNamePrefix out/$*_ \
-				--readFilesCommand zcat \
-				--limitBAMsortRAM 10000000000 \
-			  --runThreadN 8 \
-				--chimSegmentMin 18 \
-				--readFilesIn $< )
-
 	module load $(STAR_MODULE) \
 	  && module load $(SAMTOOLS_MODULE) \
 		&& $($@_CL)

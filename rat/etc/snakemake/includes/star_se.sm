@@ -1,0 +1,40 @@
+
+from rat.snakehelper import pathmapper
+
+STAR_BAM = pathmapper(FASTQ_FILES, '30.star/bam/', '.fastq.gz',
+                      '.Aligned.sortedByCoord.out.bam')
+
+rule star:
+    input: STAR_BAM
+
+
+# rule kallisto:
+#     input: rules.kallisto_acc.output
+#     output:
+#         plot1="test.plot.out"
+#     script: "scripts/kallisto_summary2.py"
+
+
+rule star_one:
+    input:
+        fq="00.fastq/{sample}.fastq.gz",
+        db=expand("{dbdir}/{organism}/{build}/star", **config)
+    output:
+        "30.star/bam/{sample}.Aligned.sortedByCoord.out.bam"
+    shell:
+        """
+        module load STAR/2.5.1b-foss-2014a
+        echo "db: {input.db}"
+        echo "input fastq: {input.fq}"
+        echo "out: {output}"
+        STAR \
+            --outSAMtype BAM SortedByCoordinate \
+            --genomeLoad LoadAndKeep \
+            --genomeDir {input.db} \
+            --outFileNamePrefix 30.star/bam/{wildcards.sample}. \
+            --readFilesCommand zcat \
+            --limitBAMsortRAM 10000000000 \
+            --runThreadN 14 \
+            --chimSegmentMin 18 \
+            --readFilesIn {input.fq}
+        """

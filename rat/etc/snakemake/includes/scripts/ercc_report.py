@@ -4,7 +4,7 @@ import pandas as pd
 from path import Path
 
 ercc = {}
-for cf in snakemake.input:
+for cf in snakemake.input.counts:
     cf = Path(cf)
     name = cf.basename().replace('.count', '')
     if cf.getsize() == 0:
@@ -17,7 +17,13 @@ for cf in snakemake.input:
             print("Error reading %s" % cf)
             exit(-1)
 
-ercc = pd.DataFrame(ercc).fillna(0).astype(int)
+ercc = pd.DataFrame(ercc).fillna(0)
+try:
+    ercc = ercc.astype(int)
+except:
+    print(ercc.iloc[:5,:5])
+    print(ercc.iloc[-5:,-5:])
+    raise
 ercc.index.name = 'ercc'
 ercc_rpm = 1e6 * (ercc / ercc.sum())
 

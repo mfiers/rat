@@ -1,0 +1,38 @@
+
+from rat.snakehelper import pathmapper
+
+
+KALLISTO_OUT = pathmapper(FASTQ_FILES, '30.kallisto/out/', '.fastq.gz', '.kallisto/abundance.tsv')
+
+
+rule kallisto_acc:
+    input: KALLISTO_OUT
+    output:
+        counts="30.kallisto/counts.tsv",
+        tpm="30.kallisto/tpm.tsv"        
+    script: "scripts/kallisto_summary.py"
+
+
+rule kallisto:
+    input: rules.kallisto_acc.output
+    output:
+        plot1="test.plot.out"
+    script: "scripts/kallisto_summary2.py"
+
+
+rule kallisto1:
+    input:
+        fq="00.fastq/{sample}.fastq.gz",
+        db=expand("{dbdir}/{organism}/{build}/kallisto", **config)
+    output:
+        "30.kallisto/out/{sample}.kallisto"
+    shell:
+        """
+        echo "db: {input.db}"
+        echo "input fastq: {input.fq}"
+        echo "out: {output}"
+        kallisto quant -t {config[threads]} \
+            -i {input.db} -o {output} -b 100 --single -l 200 -s 20 \
+            <(zcat {input.fq})
+        """
+
