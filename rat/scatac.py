@@ -125,7 +125,7 @@ def makeAggregate(cells, directory, suffix, output):
     for cell in cells:
         fileList.append(glob(os.path.join(directory, "*" + cell + suffix))[0])
     pysam.cat("-o", output + ".bam", *fileList, catch_stdout=False)
-    pysam.sort(output + ".bam", output + ".sorted", catch_stdout=False)
+    pysam.sort("-T", output + "_tmp", output + ".bam", "-o", output + ".sorted.bam", catch_stdout=False)
     pysam.index(output + ".sorted.bam", catch_stdout=False)
 
     return output + ".sorted.bam"
