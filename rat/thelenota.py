@@ -48,10 +48,12 @@ def ilabel(lab, wid):
     if not isinstance(wid, (list, tuple)):
         wid = [wid]
 
+    vbw = '{}px'.format(120 * (1+len(wid)))
     return widgets.HBox(
             [widgets.Label(lab, layout=widgets.Layout(width='120px',
                                                   max_width='120px'))] +
-            wid )
+            wid, layout=widgets.Layout(
+                width=vbw, min_width=vbw))
 
 # ipywidget layout
 def ilabel2(lab, wid1, wid2):
@@ -71,20 +73,37 @@ def io_save_pkl(filename, blob):
         pickle.dump(blob, F)
 
 
+def io_load_int(filename):
+    with open(filename, 'r') as F:
+        return int(F.read())
+
+
+def io_save_int(filename, blob):
+    with open(filename, 'w') as F:
+        F.write(str(blob))
+
+def io_load_float(filename):
+    with open(filename, 'r') as F:
+        return float(F.read())
+
+
+def io_save_float(filename, blob):
+    with open(filename, 'w') as F:
+        F.write(str(blob))
+
+
 def io_load_str(filename):
     with open(filename, 'r') as F:
-        return pickle.load(F)
+        return F.read()
 
 
 def io_save_str(filename, blob):
     with open(filename, 'w') as F:
-        pickle.dump(blob, F)
-
+        F.write(blob)
 
 def io_load_bin(filename):
     with open(filename, 'rb') as F:
         return F.read()
-
 
 def io_save_bin(filename, blob):
     with open(filename, 'wb') as F:
@@ -116,6 +135,8 @@ def io_save_meta_tsv(filename, blob):
 IOFUNC = dict(
     tsv = (io_load_tsv, io_save_tsv),
     png = (io_load_bin, io_save_bin),
+    int = (io_load_int, io_save_int),
+    float = (io_load_float, io_save_float),
     str = (io_load_str, io_save_str),
     mtsv=(io_load_meta_tsv, io_save_meta_tsv))
 
@@ -201,6 +222,26 @@ def dcache(thelenota, category, fmt, namer, force=lambda: False):
         return cfunc2
     return cfunc
 
+def cache_widget_value(widget, default, thelenota, name, namer,
+                       field_name='value', fmt='str'):
+    """
+    ensure the widget caches 'value' on disk & recreation
+    """
+
+    field_name = 'value'
+    @dcache(thelenota, 'widget/{}_{}'.format(field_name, name), fmt, namer)
+    def get_default_value():
+        return default
+
+    def set_default_value(*args):
+        setcache(thelenota,  'widget/{}_{}'.format(field_name, name),
+                 fmt, namer, getattr(widget, field_name))
+
+    setattr(widget, field_name, get_default_value())
+    widget.observe(set_default_value, field_name)
+    return widget
+
+
 #@lru_cache(32)
 def get_project_metadata_info_2(metadata_dir):
     all_m = []
@@ -211,13 +252,31 @@ def get_project_metadata_info_2(metadata_dir):
         m['filename'] = meta.basename()
         all_m.append(m)
 
-    rv = pd.concat(all_m)
+    if len(all_m) > 0:
+        rv = pd.concat(all_m)
+    else:
+        rv = pd.DataFrame(columns = ['datatype', 'filename'])
+
     rv.loc['thelenota'] = dict(datatype='categorical', filename='thelenota.tsv')
     return rv
 
 @lru_cache(32)
 def _tsv_loader(filename):
     rv = pd.read_csv(filename, index_col=0, sep="\t")
+    rv = rv[sorted(rv.columns)]
+    rv = rv.loc[sorted(rv.index)]
+
+    #no NA's allowed - but to rpevern crashes, fill this
+    if rv.shape != rv.dropna().shape:
+        minv = rv.min().min()
+        repv = 0
+        if minv < 0:
+            repv = 1.1 * minv
+        lg.warning(
+            "Counttable {} contains NANs -(NAN->{:.2f})!"\
+                .format(filename, repv))
+        rv = rv.fillna(minv)
+
     return rv
 
 def create_distribution_plot(data, title, ylog=False):
@@ -419,8 +478,6 @@ class Thelenota:
     @property
     def counttable(self):
         rv = _tsv_loader(self.countfile)
-        rv = rv[sorted(rv.columns)]
-        rv = rv.loc[sorted(rv.index)]
         return rv
 
     #
@@ -714,34 +771,69 @@ class Thelenota:
         display(html_link_w)
 
 
-
-
     def DRED(self):
 
         # DIMRED widgets
 
-        def get_default_drmethod():
-            return 'tsne'
+        def dr_name_simple():
+            """Basename for caching"""
+            return '{}'.format(self.counttable_name)
 
-        wstyle =  widgets.Layout(width='120', max_width='120px')
-        drmethod_w = widgets.Dropdown(options='pca tsne nmf'.split(),
-                                      value='tsne', layout=wstyle)
-        drperplex_w = widgets.IntSlider(value=67, min=2, max=99, step=5)
-        drlrate_w = widgets.IntSlider(value=920, min=20, max=10000, step=50)
-        drearly_w = widgets.FloatSlider(value=3.5, min=1, max=20, step=0.5)
+        def dr_name():
+            """ Make a unqiue name for this run -
+            for caching purposes - including tsne parameters
+            """
+            rv = dr_name_simple()
+            rv += '_{}'.format(drmethod_w.value)
+            if drmethod_w.value == 'tsne':
+                d = get_dr_param()
+                for k, v in sorted(d.items()):
+                    if k == 'method': continue
+                    rv += '__{}_{}'.format(k,v)
+            return rv
+
+        wstyle =  widgets.Layout(width='120px', max_width='120px',
+                                 min_width='120px')
+        drmethod_w = cache_widget_value(
+            widgets.Dropdown(options='pca tsne nmf'.split(),layout=wstyle),
+            'tsne', self, 'dimred_method', dr_name_simple)
+
+        drperplex_w = cache_widget_value(
+            widgets.IntSlider(value=67, min=2, max=99, step=5),
+            67, self, 'dimred_perplexity', dr_name_simple, fmt='int')
+
+        drlrate_w = cache_widget_value(
+            widgets.IntSlider(value=920, min=20, max=10000, step=50),
+            920, self, 'dimred_learning_rate', dr_name_simple, fmt='int')
+
+
+        drearly_w = cache_widget_value(
+            widgets.FloatSlider(value=3.5, min=1, max=20, step=0.5),
+            3.5, self, 'dimred_early_exag', dr_name_simple, fmt='float')
+
         drrun_w = widgets.Button(description='GO!')
+
         drforce_w = widgets.Checkbox(description='force',
                         layout = widgets.Layout(width='400px'))
 
-        clmethod_w = widgets.Dropdown(layout=wstyle, options=[
-            'gene', 'genes of interest', 'metadata', 'gene sigatures'])
-        clgeneset_w = widgets.Dropdown(layout=wstyle, options=[
-            'Top SD', 'Top expressing', 'Top DR Correlating'], disabled=True)
+        clmethod_w = cache_widget_value(
+            widgets.Dropdown(layout=wstyle, options=[
+                'gene', 'genes of interest', 'metadata', 'gene sigatures']),
+            'gene', self, 'color_method', dr_name_simple)
+
+        clgeneset_w = cache_widget_value(
+            widgets.Dropdown(layout=wstyle, options=[
+                'Top SD', 'Top expressing', 'Top DR Correlating'], disabled=True),
+            'Top DR Correlating', self, 'genes_of_interest_default', dr_name_simple)
+
         clgenesetchoice_w = widgets.Dropdown(layout=wstyle, options=[], disabled=True)
         clmetadata_w = widgets.Dropdown(layout=wstyle, options=[], disabled=True)
         clgene_w = widgets.Text(layout=wstyle)
 
-        sl_group_name_w = widgets.Text(layout=wstyle, value='thelenota')
+        sl_group_name_w = cache_widget_value(
+            widgets.Text(layout=wstyle), 'thelenota', self,
+            'group_define_name', dr_name_simple)
+
         sl_group_set_w = widgets.Text(layout=wstyle)
         sl_group_set_go_w = widgets.Button(description='set', layout=wstyle)
 
@@ -912,17 +1004,6 @@ class Thelenota:
         clmethod_w.observe(on_colormethod_change, 'value')
         clgeneset_w.observe(on_colormethod_change, 'value')
 
-
-        def dr_name():
-            """ Make a unqiue name for this run - for caching purposes
-            """
-            rv = '{}_{}'.format(self.counttable_name,
-                                      dr_w['method'].value)
-            d = get_dr_param()
-            for k, v in sorted(d.items()):
-                if k == 'method': continue
-                rv += '__{}_{}'.format(k,v)
-            return rv
 
         def force_refresh():
             "Force to refresh calculations? Or can we use the cache??"
