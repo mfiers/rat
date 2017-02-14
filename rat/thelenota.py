@@ -48,19 +48,10 @@ def ilabel(lab, wid):
     if not isinstance(wid, (list, tuple)):
         wid = [wid]
 
-    vbw = '{}px'.format(120 * (1+len(wid)))
+    vbw = '{}px'.format(150 * (1+len(wid)))
     return widgets.HBox(
-            [widgets.Label(lab, layout=widgets.Layout(width='120px',
-                                                  max_width='120px'))] +
-            wid, layout=widgets.Layout(
-                width=vbw, min_width=vbw))
-
-# ipywidget layout
-def ilabel2(lab, wid1, wid2):
-    return widgets.HBox(
-        [widgets.Label(lab, layout=widgets.Layout(width='120px',
-                                                  max_width='120px')),
-         wid1, wid2])
+            [widgets.Label(lab, layout=widgets.Layout(width='100px'))] +
+            wid)
 
 # save/load functions
 def io_load_pkl(filename):
@@ -144,6 +135,12 @@ IOFUNC = dict(
 # Dimred methods
 #
 
+def run_dbscan(mat, eps):
+    from sklearn.cluster import DBSCAN
+    db = DBSCAN(eps=eps).fit(mat)
+    rv = pd.Series(db.labels_, index=mat.index)
+    return rv
+
 def run_pca(mat):
     from sklearn.decomposition import PCA
     pca = PCA(n_components=10)
@@ -172,14 +169,22 @@ def run_tsne(mat, get_param):
     from sklearn.manifold import TSNE
 
     param = get_param()
+    pca_var_cutoff = param.get('pca_var_cutoff', 0.2)
+
     tsne_param_names = '''early_exaggeration
                           perplexity
                           learning_rate'''.split()
+
     tsne_param = {a:b for a,b in param.items() if a in tsne_param_names}
     pca = PCA(n_components=param.get('pca_components', 20))
-    ptra = pca.fit_transform(mat.T)
+    pcafit = pca.fit(mat.T)
+    nodim = len([x for x in pcafit.explained_variance_ratio_
+                 if x > pca_var_cutoff])
+    if nodim < 2:
+        nodim = 2 # ensure at least two dimentions used
+    ptra = pd.DataFrame(pcafit.transform(mat.T))
     tsne = TSNE(random_state=42, **tsne_param)
-    ttra = pd.DataFrame(tsne.fit_transform(ptra), index=mat.columns)
+    ttra = pd.DataFrame(tsne.fit_transform(ptra.iloc[:,:nodim]), index=mat.columns)
 
     meta = pd.DataFrame(index=ttra.columns)
     meta['method'] = 'tsne'
@@ -228,7 +233,6 @@ def cache_widget_value(widget, default, thelenota, name, namer,
     ensure the widget caches 'value' on disk & recreation
     """
 
-    field_name = 'value'
     @dcache(thelenota, 'widget/{}_{}'.format(field_name, name), fmt, namer)
     def get_default_value():
         return default
@@ -237,7 +241,10 @@ def cache_widget_value(widget, default, thelenota, name, namer,
         setcache(thelenota,  'widget/{}_{}'.format(field_name, name),
                  fmt, namer, getattr(widget, field_name))
 
-    setattr(widget, field_name, get_default_value())
+    defval = get_default_value()
+    # lg.warning('set widget {} to {}'.format(field_name, defval))
+    setattr(widget, field_name, defval)
+    # widget.value = defval
     widget.observe(set_default_value, field_name)
     return widget
 
@@ -338,6 +345,7 @@ class Thelenota:
         #this will contain the indici of selected spots
         self._DR_INDICI_SEL_ = []
         self._DF_INDICI_SEL_ = []
+        self._CLUSTER_LABELS = {}
 
         # WIDGET INSTANCES
         self.basedir = Path(basedir).expanduser().abspath()
@@ -572,12 +580,53 @@ class Thelenota:
             rv.append(name)
         return list(sorted(rv))
 
+
+    def ccwidget(self, name, wtype, setnamer, default, **kwargs):
+        """ Create a widget with a disk-cached value for persistence
+            inbetween instantiating the widget.
+        """
+
+        from traitlets import TraitError
+
+        field_name = 'value'
+        wmaker = dict(
+            dropdown = widgets.Dropdown,
+            int = widgets.IntSlider,
+            float = widgets.FloatSlider,
+            ).get(wtype, widgets.Text)
+
+        wstyle =  widgets.Layout(width='200px')
+        widget = wmaker(value=default, layout=wstyle, **kwargs)
+
+        fmt = dict(int='int', float='float').get(wtype, 'txt')
+
+        @dcache(self, 'widget/{}_{}'.format(field_name, name), fmt, setnamer)
+        def get_default_value():
+            return default
+
+        def set_default_value(*args):
+            setcache(self,  'widget/{}_{}'.format(field_name, name),
+                     fmt, setnamer, getattr(widget, field_name))
+
+        try:
+            setattr(widget, field_name, get_default_value())
+        except TraitError:
+            wetattr(widget, field_name, default)
+
+        widget.observe(set_default_value, field_name)
+        return widget
+
+
+        return cache_widget_value(widget, default, self, name)
+        cache_widget_value(
+            widgets.Text(layout=wstyle), 'thelenota', self,
+            'group_define_name', dr_name_simple)
     def DIFX(self):
 
         # define widgets
         cat_meta_grp = list(
             self.get_metadata_info('categorical').index)
-        wstyle =  widgets.Layout(width='120', max_width='120px')
+        wstyle =  widgets.Layout(width='200')
         sl_group_a = widgets.Dropdown(
             options=cat_meta_grp, layout=wstyle, value='thelenota')
         sl_set_a = widgets.Dropdown(options=[], layout=wstyle)
@@ -592,7 +641,7 @@ class Thelenota:
 
         nogenes = self.counttable.shape[0]
         colv = [1] * nogenes
-        color_mapper = LinearColorMapper(palette="Viridis256", low=-0.3, high=2.5)
+        color_mapper = LinearColorMapper(palette="Inferno256", low=-0.3, high=2.5)
         pdata = ColumnDataSource(dict(
             x=[random.uniform(-10, 10) for x in range(nogenes)],
             y=[random.uniform(-10, 10) for x in range(nogenes)],
@@ -792,11 +841,14 @@ class Thelenota:
                     rv += '__{}_{}'.format(k,v)
             return rv
 
-        wstyle =  widgets.Layout(width='120px', max_width='120px',
-                                 min_width='120px')
-        drmethod_w = cache_widget_value(
-            widgets.Dropdown(options='pca tsne nmf'.split(),layout=wstyle),
-            'tsne', self, 'dimred_method', dr_name_simple)
+        current_cluster_labels = None
+
+        wstyle =  widgets.Layout(width='200px') #, max_width='120px',
+                                 # min_width='120px')
+
+        drmethod_w = self.ccwidget(
+            'dimred_method', 'dropdown', dr_name_simple, 'tsne',
+            options='pca tsne nmf'.split())
 
         drperplex_w = cache_widget_value(
             widgets.IntSlider(value=67, min=2, max=99, step=5),
@@ -806,25 +858,28 @@ class Thelenota:
             widgets.IntSlider(value=920, min=20, max=10000, step=50),
             920, self, 'dimred_learning_rate', dr_name_simple, fmt='int')
 
-
         drearly_w = cache_widget_value(
             widgets.FloatSlider(value=3.5, min=1, max=20, step=0.5),
             3.5, self, 'dimred_early_exag', dr_name_simple, fmt='float')
 
+        dr_tsne_pcavar_cutoff_w = self.ccwidget(
+            'tsne_pca_var_cutoff', 'float', dr_name_simple, 0.05,
+            min=0.01, max=0.2, step=0.01)
+
+
         drrun_w = widgets.Button(description='GO!')
 
         drforce_w = widgets.Checkbox(description='force',
-                        layout = widgets.Layout(width='400px'))
+                        layout = widgets.Layout(width='300px'))
 
-        clmethod_w = cache_widget_value(
-            widgets.Dropdown(layout=wstyle, options=[
-                'gene', 'genes of interest', 'metadata', 'gene sigatures']),
-            'gene', self, 'color_method', dr_name_simple)
+        clmethod_w = self.ccwidget(
+            'color_method', 'dropdown', dr_name_simple, 'gene',
+            options=['gene', 'genes of interest', 'metadata', 'gene sigatures'])
 
-        clgeneset_w = cache_widget_value(
-            widgets.Dropdown(layout=wstyle, options=[
-                'Top SD', 'Top expressing', 'Top DR Correlating'], disabled=True),
-            'Top DR Correlating', self, 'genes_of_interest_default', dr_name_simple)
+        clgeneset_w = self.ccwidget(
+            'genes_of_interest_select', 'dropdown', dr_name_simple, 'DR Corr',
+            options=['Top SD', 'Top expressing', 'DR Corr', 'DR Corr~0'],
+            disabled=True)
 
         clgenesetchoice_w = widgets.Dropdown(layout=wstyle, options=[], disabled=True)
         clmetadata_w = widgets.Dropdown(layout=wstyle, options=[], disabled=True)
@@ -840,87 +895,102 @@ class Thelenota:
         sl_groupextractname_w = widgets.Text(layout=wstyle)
         sl_group_extract_go_w = widgets.Button(description='extract')
 
+        clu_method_w = self.ccwidget(
+            'cluster_method', 'dropdown', dr_name_simple, 'dbscan',
+            options=['dbscan'])
+        clu_dbscan_eps_w = self.ccwidget(
+            'clu_dbscan_eps_w', 'float', dr_name_simple, 2.5,
+            min=0.1, max=10.0, step=0.1)
+        clu_go_w = widgets.Button(description='Cluster!')
+        clu_name_w = self.ccwidget(
+            "cluster_name", "text", dr_name_simple, 'cluster')
+        clu_store_go_w = widgets.Button(description='save')
+
         plotinfo = {}
 
-        cl_w = {
-            'gene': [clgene_w],
-            'genes of interest': [clgeneset_w, clgenesetchoice_w],
-            'metadata': [clmetadata_w],
-            'gene sigatures': [],
-            }
+        clu_w = dict(cluster_method = clu_method_w,
+                    eps = clu_dbscan_eps_w)
+
+        cl_w = {'gene': [clgene_w],
+                'genes of interest': [clgeneset_w, clgenesetchoice_w],
+                'metadata': [clmetadata_w],
+                'gene sigatures': []}
 
         html_w = widgets.HTML()
         dr_w = dict(method=drmethod_w,
                     perplexity=drperplex_w,
                     learning_rate=drlrate_w,
-                    early_exaggeration=drearly_w)
+                    early_exaggeration=drearly_w,
+                    pca_var_cutoff=dr_tsne_pcavar_cutoff_w)
+
 
         # data!
 
         samples = self.counttable.columns
         nosamples = len(samples)
-        color_mapper = LinearColorMapper(palette="Viridis256", low=-0.3, high=2.5)
+        color_mapper = LinearColorMapper(palette="Inferno256", low=-0.3, high=2.5)
         topgene = self.counttable.std(1).sort_values().tail(1).index[0]
-        colv = self.counttable.loc[topgene]
+        colv = list(self.counttable.loc[topgene])
         clgene_w.value = topgene
         pdata = ColumnDataSource(dict(
             x=[random.uniform(-10, 10) for x in range(nosamples)],
             y=[random.uniform(-10, 10) for x in range(nosamples)],
+            desc=list(samples),
             size=[0.3] * nosamples,
             score=colv))
         self._pdata = pdata
 
-        # set up bokeh
+        # Clustering
 
-        select_callback = CustomJS(
-            args = {'dsource': pdata},
-            code = """
-               var indici = dsource.selected['1d'].indices;
-               console.log(indici);
-               IPython.notebook.kernel.execute(
-                    'T._DR_INDICI_SEL_ = ' + indici);
-                """ )
+        def run_clustering(*args):
+            method = clu_method_w.value
+            stats, trans = run_dr_2()
 
-        bokeh_tools = [
-            bmodels.HoverTool(), # bst,
-            bmodels.BoxSelectTool(callback = select_callback),
-            bmodels.PanTool(),
-            bmodels.WheelZoomTool(),
-            bmodels.BoxZoomTool(),
-            bmodels.LassoSelectTool(callback = select_callback),
-            bmodels.SaveTool(),
-            bmodels.ResetTool(),
-            bmodels.HelpTool(),
-        ]
+            if method == 'dbscan':
+                labels = run_dbscan(trans, clu_dbscan_eps_w.value)
+            else:
+                lg.warning('Not implemented cluster method: {}'.format(method))
+                return
 
-        bfigure = bokeh_figure(plot_width=FIGSIZE[0],
-                              plot_height=FIGSIZE[1],
-                              tools = bokeh_tools,
-                              toolbar_sticky = False,
-                              toolbar_location='left',
-                              title='dimredplot')
-        bfigure.title.text_color = 'darkgrey'
-        bfigure.title.text_font_style = 'normal'
-        bfigure.title.text_font_size= "12px"
-        self._bfigure = bfigure
+            current_cluster_labels = labels
+            colv = labels
+            color_mapper = CategoricalColorMapper(
+                palette=bokeh.palettes.Category20[20] ,
+                factors=list(colv.value_counts().index))
+            colorbar_mapper = LinearColorMapper(palette='Inferno256',
+                                                low=0, high=0)
+            bcolorbar.color_mapper = colorbar_mapper
+            if not bfigure.legend[0].items:
+                bfigure.legend[0].items.append(blegend)
+            bplot.data_source.data['score'] = colv
+            bplot.glyph.fill_color['transform'] = color_mapper
+            bplot.glyph.line_width=0
+            bplot.glyph.line_alpha=0
+            bokeh_io.push_notebook(handle=bhandle)
 
-        bplot = bfigure.circle(
-                x='x', y='y', radius='size', source=pdata,
-                legend='score',
-                color=dict(field='score', transform=color_mapper))
+        def store_current_cluster(*args):
+            if current_cluster_labels is None:
+                lg.warning("no cluster defined")
+                return
 
-        self._bplot = bplot
+            labels = current_cluster_labels
+            cname = clu_name_w.value
 
-        bcolorbar = ColorBar(
-            color_mapper=color_mapper, ticker=BasicTicker(),
-            formatter=BasicTickFormatter(precision=1), label_standoff=10,
-            border_line_color=None, location=(0,0))
+            outfile = self.metadata_dir / '{}.tsv'.format(cname)
+            moutfile = self.metadata_dir / '{}.meta.tsv'.format(cname)
 
-        bfigure.add_layout(bcolorbar, 'right')
-        blegend = bfigure.legend[0].items[0]
-        bhandle= bokeh_io.show(bfigure, notebook_handle=True)
+            tmeta = pd.DataFrame({cname: labels})
+            tmeta.to_csv(outfile, sep="\t")
+            with open(moutfile, 'w') as F:
+                F.write("{}\tcategorical\n".format(cname))
+
+        html_w.value = 'saved!'
+
+        clu_store_go_w.on_click(store_current_cluster)
 
 
+
+        clu_go_w.on_click(run_clustering)
         # GROUP SET
         def define_group(*args):
             groupset = sl_group_name_w.value
@@ -994,8 +1064,14 @@ class Thelenota:
                     clgenesetchoice_w.options = list(
                         self.counttable.mean(1).sort_values(ascending=False)\
                             .head(50).index)
-                elif gset == 'Top DR Correlating':
+                elif gset == 'DR Corr':
                     corr = get_top_correlating().max(1)
+                    corr = corr.sort_values(ascending=False)[:50]
+                    corr = ['{} -- {:.2g}'.format(a, b)
+                            for (a, b) in zip(corr.index, corr)]
+                    clgenesetchoice_w.options = corr
+                elif gset == 'DR Corr~0':
+                    corr = get_top_correlating_not0().max(1)
                     corr = corr.sort_values(ascending=False)[:50]
                     corr = ['{} -- {:.2g}'.format(a, b)
                             for (a, b) in zip(corr.index, corr)]
@@ -1008,6 +1084,21 @@ class Thelenota:
         def force_refresh():
             "Force to refresh calculations? Or can we use the cache??"
             return drforce_w.value
+
+        @dcache(self, 'dimred_correlating_not0_genes', 'tsv', dr_name, force_refresh)
+        def get_top_correlating_not0(*_):
+            stats, trans = run_dr_2()
+            def pearson_not_0(a, b):
+                aa = a[a>0]
+                if len(aa) < 10:
+                    return 0, 1
+                return pearsonr(a[a>0], b[a>0])
+
+            c1 = np.abs(self.counttable.apply(
+                lambda x: pearson_not_0(x, trans.iloc[:,0])[0], axis=1))
+            c2 = np.abs(self.counttable.apply(
+                lambda x: pearson_not_0(x, trans.iloc[:,1])[0], axis=1))
+            return pd.DataFrame({0: c1, 1: c2})
 
 
         @dcache(self, 'dimred_correlating_genes', 'tsv', dr_name, force_refresh)
@@ -1039,8 +1130,8 @@ class Thelenota:
         def _get_color_scale():
             clmethod = clmethod_w.value
             plotinfo['color_on'] = clmethod
-            #html_w.value = clmethod
             ctype = 'continuous'
+
             if clmethod == 'gene':
                 plotinfo['color_gene'] = '<invalid>'
                 gene = clgene_w.value
@@ -1067,22 +1158,26 @@ class Thelenota:
                 ctype = minfo
 
                 colv = self.get_metadata(mkey)
+                extra_cols = set(self.counttable.columns) - set(colv.index)
+                if len(extra_cols) > 0:
+                    colv = colv.append(pd.Series('na', index=extra_cols))
+                colv[extra_cols] = 'na'
+                ##print(extra_cols)
+                #print(len(extra_cols))
                 colv = colv[sorted(self.counttable.columns)]
 
             if ctype == 'categorical':
                 color_mapper = CategoricalColorMapper(
                     palette=bokeh.palettes.Category10[10] ,
                     factors=list(colv.value_counts().index))
-                colorbar_mapper = LinearColorMapper(palette='Viridis256',
+                colorbar_mapper = LinearColorMapper(palette='Inferno256',
                                                     low=0, high=0)
                 bcolorbar.color_mapper = colorbar_mapper
                 if not bfigure.legend[0].items:
                     bfigure.legend[0].items.append(blegend)
 
-                #print(len(bfigure.legend[0].items))
-#                print(bplot.legend)
             else:
-                color_mapper = LinearColorMapper(palette="Viridis256",
+                color_mapper = LinearColorMapper(palette="Inferno256",
                                                   low=colv.min(),
                                                   high=colv.max())
 
@@ -1090,7 +1185,7 @@ class Thelenota:
                 if bfigure.legend[0].items:
                     bfigure.legend[0].items.pop()
 
-
+            #print(colv.shape, colv.dropna().shape)
             bplot.data_source.data['score'] = colv
             bplot.glyph.fill_color['transform'] = color_mapper
             bplot.glyph.line_width=0
@@ -1112,6 +1207,8 @@ class Thelenota:
         def _create_scatter_plot(only_color=False):
             if not only_color:
                 meta, trans = run_dr_2()
+                self._dr_meta = meta
+                self._dr_trans = trans
                 col1, col2 = trans.columns[:2]
                 d1 = trans[col1]; d2=trans[col2]
                 title = dr_name().replace('_', ' ')
@@ -1151,18 +1248,85 @@ class Thelenota:
         clgenesetchoice_w.observe(run_dr_color, 'value')
         clmetadata_w.observe(run_dr_color, 'value')
 
+
+        # set up bokeh
+        select_callback = CustomJS(
+            args = {'dsource': pdata},
+            code = """
+               var indici = dsource.selected['1d'].indices;
+               console.log(indici);
+               IPython.notebook.kernel.execute(
+                    'T._DR_INDICI_SEL_ = ' + indici);
+                """ )
+
+        bokeh_tools = [
+            bmodels.HoverTool(tooltips=[
+                        ("(x,y)", "($x, $y)"),
+                        ("score", "$score"),
+                        ("desc", "@desc"),
+                    ]),            bmodels.BoxSelectTool(callback = select_callback),
+            bmodels.PanTool(),
+            bmodels.WheelZoomTool(),
+            bmodels.BoxZoomTool(),
+            bmodels.LassoSelectTool(callback = select_callback),
+            bmodels.SaveTool(),
+            bmodels.ResetTool(),
+            bmodels.HelpTool(),
+        ]
+
+        bfigure = bokeh_figure(plot_width=FIGSIZE[0],
+                               plot_height=FIGSIZE[1],
+                               tools = bokeh_tools,
+                               toolbar_sticky = False,
+                               toolbar_location='left',
+                               title='dimredplot')
+        bfigure.title.text_color = 'darkgrey'
+        bfigure.title.text_font_style = 'normal'
+        bfigure.title.text_font_size= "12px"
+        self._bfigure = bfigure
+
+        bplot = bfigure.circle(
+                x='x', y='y', radius='size', source=pdata,
+                legend='score',
+                color=dict(field='score', transform=color_mapper))
+
+        self._bplot = bplot
+
+        bcolorbar = ColorBar(
+            color_mapper=color_mapper, ticker=BasicTicker(),
+            formatter=BasicTickFormatter(precision=1), label_standoff=10,
+            border_line_color=None, location=(0,0))
+
+
+        bfigure.add_layout(bcolorbar, 'right')
+        blegend = bfigure.legend[0].items[0]
+        #for k, v in self._pdata.data.items():
+    #        print(k, len(v), pd.Series(v).min())
+#            print(pd.Series(v).head())
+        bhandle= bokeh_io.show(bfigure, notebook_handle=True)
+
         tab_children = []
         tab_children.append(widgets.VBox([
             ilabel('method', drmethod_w),
             ilabel('perplexity', drperplex_w),
             ilabel('learning rate', drlrate_w),
-            ilabel('early exagg.', drearly_w)]))
+            ilabel('early exagg.', drearly_w),
+            ilabel('PCA var. cutoff', dr_tsne_pcavar_cutoff_w),
+            widgets.HBox([drrun_w, drforce_w]),
+            ]))
 
         tab_children.append(widgets.VBox([
             ilabel('method', clmethod_w),
             ilabel('geneset', [clgeneset_w, clgenesetchoice_w]),
             ilabel('metadata', clmetadata_w),
             ilabel('gene', clgene_w),
+        ]))
+
+        tab_children.append(widgets.VBox([
+            ilabel('method', clu_method_w),
+            ilabel('dbscan:eps', clu_dbscan_eps_w),
+            ilabel('store', [clu_name_w, clu_store_go_w]),
+            clu_go_w
         ]))
 
         tab_children.append(widgets.VBox([
@@ -1175,11 +1339,11 @@ class Thelenota:
         tabs = widgets.Tab(children=tab_children)
         tabs.set_title(0, 'DimRed')
         tabs.set_title(1, 'Color')
-        tabs.set_title(2, 'Selected')
-        tabs.selected_index=1
+        tabs.set_title(2, 'Cluster')
+        tabs.set_title(3, 'Select')
+        tabs.selected_index=2
         display(tabs)
 
-        display(widgets.HBox([drrun_w, drforce_w]))
         display(html_w)
 
         #run a few on_change functions so that all is in sync
