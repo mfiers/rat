@@ -44,14 +44,11 @@ FIGSIZE2 = FIGSIZE[0]/FIGDPI, FIGSIZE[1]/FIGDPI
 
 
 # ipywidget layout
-def ilabel(lab, wid):
-    if not isinstance(wid, (list, tuple)):
-        wid = [wid]
-
+def ilabel(lab, *wid):
     vbw = '{}px'.format(150 * (1+len(wid)))
     return widgets.HBox(
             [widgets.Label(lab, layout=widgets.Layout(width='100px'))] +
-            wid)
+            list(wid))
 
 # save/load functions
 def io_load_pkl(filename):
@@ -194,7 +191,10 @@ def run_tsne(mat, get_param):
 def setcache(thelenota, category, fmt, namer, value):
     cache_dir = thelenota.cachedir / category
     cache_dir.makedirs_p()
-    objname = namer()
+    if isinstance(namer, str):
+        objname = namer
+    else:
+        objname = namer()
     extension = dict(mtsv='tsv.gz',
                      tsv='tsv.gz').get(fmt, fmt)
     cache_file = cache_dir / '{}.{}'.format(objname, extension)
@@ -209,7 +209,11 @@ def dcache(thelenota, category, fmt, namer, force=lambda: False):
             cache_dir = thelenota.cachedir / category
             cache_dir.makedirs_p()
 
-            objname = namer()
+            if isinstance(namer, str):
+                objname = namer
+            else:
+                objname = namer()
+
             extension = dict(mtsv='tsv.gz',
                              tsv='tsv.gz').get(fmt, fmt)
 
@@ -339,8 +343,8 @@ class Thelenota:
     def __init__(self,
                  basedir,
                  experiment_name=None,
-                 count_table_dir=COUNT_TABLE_DIR,
-                 ):
+                 geneset_dir=None,
+                 count_table_dir=COUNT_TABLE_DIR ):
 
         #this will contain the indici of selected spots
         self._DR_INDICI_SEL_ = []
@@ -356,12 +360,27 @@ class Thelenota:
             options=self.experiments, value=experiment_name)
         self.counttable_w = widgets.Dropdown(
             options=self.counttables, value=self.counttables[0])
-        self.geneset_dir = None
+
+        if geneset_dir is None:
+            self.geneset_dir = self.basedir / 'signatures'
+        else:
+            self.geneset_dir = Path(geneset_dir)
+
 
     def __str__(self):
         return "<thelenota {}>".format(self.basedir)
     __repr__ = __str__
 
+    def save_geneset(self, name, gset):
+        outfile = self.geneset_dir / '{}.grp'.format(name)
+        with open(outfile, 'w') as F:
+            F.write("\n".join(sorted(list(gset))))
+
+    @property
+    def genesets(self):
+        rv = list(self.geneset_dir.glob('*.grp'))
+        rv = [x.replace('.grp', '') for x in rv]
+        return rv
 
     #
     # Experiment
@@ -581,7 +600,7 @@ class Thelenota:
         return list(sorted(rv))
 
 
-    def ccwidget(self, name, wtype, setnamer, default, **kwargs):
+    def ccwidget(self, name, wtype, setnamer, default=None, **kwargs):
         """ Create a widget with a disk-cached value for persistence
             inbetween instantiating the widget.
         """
@@ -590,13 +609,13 @@ class Thelenota:
 
         field_name = 'value'
         wmaker = dict(
-            dropdown = widgets.Dropdown,
+            dropdown = partial(widgets.Dropdown, options=[]),
             int = widgets.IntSlider,
             float = widgets.FloatSlider,
             ).get(wtype, widgets.Text)
 
         wstyle =  widgets.Layout(width='200px')
-        widget = wmaker(value=default, layout=wstyle, **kwargs)
+        widget = wmaker(layout=wstyle, **kwargs)
 
         fmt = dict(int='int', float='float').get(wtype, 'txt')
 
@@ -609,9 +628,12 @@ class Thelenota:
                      fmt, setnamer, getattr(widget, field_name))
 
         try:
-            setattr(widget, field_name, get_default_value())
+            defval = get_default_value()
+            if not defval is None:
+                setattr(widget, field_name, get_default_value())
         except TraitError:
-            wetattr(widget, field_name, default)
+            pass
+            #setattr(widget, field_name, default)
 
         widget.observe(set_default_value, field_name)
         return widget
@@ -621,20 +643,35 @@ class Thelenota:
         cache_widget_value(
             widgets.Text(layout=wstyle), 'thelenota', self,
             'group_define_name', dr_name_simple)
+
+
     def DIFX(self):
 
         # define widgets
         cat_meta_grp = list(
             self.get_metadata_info('categorical').index)
         wstyle =  widgets.Layout(width='200')
-        sl_group_a = widgets.Dropdown(
-            options=cat_meta_grp, layout=wstyle, value='thelenota')
-        sl_set_a = widgets.Dropdown(options=[], layout=wstyle)
-        sl_group_b = widgets.Dropdown(
-            options=cat_meta_grp, layout=wstyle, value='thelenota')
-        sl_set_b = widgets.Dropdown(options=[], layout=wstyle)
+
+        sl_group_a = self.ccwidget(
+            "diffx_group_a", "dropdown", lambda: 'difx', 'thelenota',
+            options=cat_meta_grp)
+
+        sl_set_a = self.ccwidget(
+            "diffx_group_a_set", "dropdown", lambda: 'difx', None)
+
+        sl_group_b = self.ccwidget(
+            "diffx_group_b", "dropdown", lambda: 'difx', 'thelenota',
+            options=cat_meta_grp)
+
+        sl_set_b = self.ccwidget(
+            "diffx_group_b_set", "dropdown", lambda: 'difx', None)
+
         sl_go = widgets.Button(description='Go')
-        sl_enrichr_link = widgets.Button(description='Enrichr')
+        sl_save_set = widgets.Button(description='Save')
+        sl_enrichr_link = widgets.Button(description='Save & Enrichr')
+        sl_set_name = self.ccwidget('diffx_setname', 'text', lambda: 'difx',
+                                    "set_name")
+
         sl_norm = widgets.Checkbox(value=False)
         html_w = widgets.HTML()
         html_link_w = widgets.HTML()
@@ -691,16 +728,27 @@ class Thelenota:
                 color=dict(field='score', transform=color_mapper))
 
         self._fplot = bplot
-        bhandle= bokeh_io.show(bfigure, notebook_handle=True)
+        bhandle = bokeh_io.show(bfigure, notebook_handle=True)
 
+        #def save_geneset
         def go_enrichr(*args):
-            idx = self._DF_INDICI_SEL_
+            idx = list(self._DF_INDICI_SEL_)
             if len(idx) == 0:
                 return
+
             genes = list(self.counttable.index.to_series()\
-                        .iloc[list(self._DR_INDICI_SEL_)])
+                        .iloc[idx])
+
+            if len(genes) == 0:
+                return
+
+            setname = sl_set_name.value
+            self.save_geneset(setname, genes)
+
             genes_str = "\n".join(genes)
-            description = 'subset 1'
+            description = setname
+            if not description:
+                description = 'a set'
             payload = {
                 'list': (None, genes_str),
                 'description': (None, description)
@@ -708,8 +756,8 @@ class Thelenota:
 
             ENRICHR_URL = 'http://amp.pharm.mssm.edu/Enrichr/addList'
             response = requests.post(ENRICHR_URL, files=payload)
-
             if not response.ok:
+                print(response)
                 raise Exception('Error analyzing gene list')
 
             data = json.loads(response.text)
@@ -795,27 +843,31 @@ class Thelenota:
                 mean_b = cnts_b.mean(1),
                 mean_all = np.log10(cnts.mean(1)),
             ))
+
             stats['a/b'] = stats['mean_a'] / stats['mean_b']
             stats['lfc'] = np.log2(stats['a/b'])
-            stats = stats.sort_values(by='lfc', ascending=False)
+            #print(stats.head())
+            #stats = stats.sort_values(by='lfc', ascending=False)
+            #bplot.data_source.data['x'] = stats['mean_a']
+            #bplot.data_source.data['y'] = stats['mean_b']
             bplot.data_source.data['x'] = stats['mean_all']
             bplot.data_source.data['y'] = stats['lfc']
             m = stats['mean_all'].max()
-            bplot.data_source.data['size'] = [0.012 * m] * nogenes
-
+            bplot.data_source.data['size'] = [0.01 * m] * nogenes
             bokeh_io.push_notebook(handle=bhandle)
 
         sl_go.on_click(run)
         run()
         # display interface
-        display(ilabel('Group A', [sl_group_a, sl_set_a]))
-        display(ilabel('Group B (-A)', [sl_group_b, sl_set_b]))
+        display(ilabel('Group A', sl_group_a, sl_set_a))
+        display(ilabel('Group B (-A)', sl_group_b, sl_set_b))
         display(ilabel('TPM normalize', sl_norm))
+        display(ilabel('Set Name', sl_set_name))
         # tabs = widgets.Tab(children=tab_children)
         # tabs.set_title(0, 'Define sets')
         # display(tabs) sl_enrichr_link html_link_w
 
-        display(widgets.HBox([sl_go, sl_enrichr_link]))
+        display(widgets.HBox([sl_go, sl_save_set, sl_enrichr_link]))
         display(html_w)
         display(html_link_w)
 
@@ -881,8 +933,17 @@ class Thelenota:
             options=['Top SD', 'Top expressing', 'DR Corr', 'DR Corr~0'],
             disabled=True)
 
-        clgenesetchoice_w = widgets.Dropdown(layout=wstyle, options=[], disabled=True)
-        clmetadata_w = widgets.Dropdown(layout=wstyle, options=[], disabled=True)
+        clgenesetchoice_w = self.ccwidget(
+            'geneset_to_use_for_color', 'dropdown', dr_name_simple, None,
+            options=[], disabled=True)
+
+        clmetadata_w = self.ccwidget(
+            'gene_metadataset_to_use_for_color', 'dropdown', dr_name_simple, None,
+            options=[], disabled=True)
+
+        cl_gene_sign_w = self.ccwidget(
+            'gene_signature_color', 'dropdown', dr_name_simple, None,
+            options=[], disabled=True)
         clgene_w = widgets.Text(layout=wstyle)
 
         sl_group_name_w = cache_widget_value(
@@ -952,7 +1013,7 @@ class Thelenota:
                 lg.warning('Not implemented cluster method: {}'.format(method))
                 return
 
-            current_cluster_labels = labels
+            self._CLUSTER_LABELS[dr_name()] = labels
             colv = labels
             color_mapper = CategoricalColorMapper(
                 palette=bokeh.palettes.Category20[20] ,
@@ -969,13 +1030,14 @@ class Thelenota:
             bokeh_io.push_notebook(handle=bhandle)
 
         def store_current_cluster(*args):
-            if current_cluster_labels is None:
-                lg.warning("no cluster defined")
+            labels = self._CLUSTER_LABELS.get(dr_name())
+
+            if labels is None:
+                html_w.value = "no cluster defined"
                 return
 
-            labels = current_cluster_labels
             cname = clu_name_w.value
-
+            labels = labels.apply(lambda x: '{}_{}'.format(cname, x))
             outfile = self.metadata_dir / '{}.tsv'.format(cname)
             moutfile = self.metadata_dir / '{}.meta.tsv'.format(cname)
 
@@ -983,14 +1045,11 @@ class Thelenota:
             tmeta.to_csv(outfile, sep="\t")
             with open(moutfile, 'w') as F:
                 F.write("{}\tcategorical\n".format(cname))
-
-        html_w.value = 'saved!'
+            html_w.value = 'saved cluster to {}'.format(outfile)
 
         clu_store_go_w.on_click(store_current_cluster)
-
-
-
         clu_go_w.on_click(run_clustering)
+
         # GROUP SET
         def define_group(*args):
             groupset = sl_group_name_w.value
@@ -1054,6 +1113,11 @@ class Thelenota:
 
             if clmethod == 'metadata':
                 clmetadata_w.options = list(self.metadata_info.index)
+            elif clmethod == 'gene sigurate':
+                sigsets = self.genesets
+                cl_gene_sign_w.options = sigsets
+                cl_gene_sign_w.value = sigsts[0]
+
             elif clmethod == 'genes of interest':
                 gset = clgeneset_w.value
                 if gset == 'Top SD':
@@ -1132,6 +1196,7 @@ class Thelenota:
             plotinfo['color_on'] = clmethod
             ctype = 'continuous'
 
+            colv = pd.Series(bplot.data_source.data['score'])
             if clmethod == 'gene':
                 plotinfo['color_gene'] = '<invalid>'
                 gene = clgene_w.value
@@ -1317,23 +1382,24 @@ class Thelenota:
 
         tab_children.append(widgets.VBox([
             ilabel('method', clmethod_w),
-            ilabel('geneset', [clgeneset_w, clgenesetchoice_w]),
+            ilabel('geneset', clgeneset_w, clgenesetchoice_w),
             ilabel('metadata', clmetadata_w),
+            ilabel('signature', cl_gene_sign_w),
             ilabel('gene', clgene_w),
         ]))
 
         tab_children.append(widgets.VBox([
             ilabel('method', clu_method_w),
             ilabel('dbscan:eps', clu_dbscan_eps_w),
-            ilabel('store', [clu_name_w, clu_store_go_w]),
+            ilabel('store', clu_name_w, clu_store_go_w),
             clu_go_w
         ]))
 
         tab_children.append(widgets.VBox([
-            ilabel('group define', [sl_group_name_w, sl_group_set_w,
-                                    sl_group_set_go_w]),
-            ilabel('count extract', [sl_groupextractname_w,
-                                     sl_group_extract_go_w]),
+            ilabel('group define', sl_group_name_w, sl_group_set_w,
+                                    sl_group_set_go_w),
+            ilabel('count extract', sl_groupextractname_w,
+                                     sl_group_extract_go_w),
         ]))
 
         tabs = widgets.Tab(children=tab_children)
@@ -1341,7 +1407,7 @@ class Thelenota:
         tabs.set_title(1, 'Color')
         tabs.set_title(2, 'Cluster')
         tabs.set_title(3, 'Select')
-        tabs.selected_index=2
+        tabs.selected_index=1
         display(tabs)
 
         display(html_w)
@@ -1349,3 +1415,341 @@ class Thelenota:
         #run a few on_change functions so that all is in sync
         on_colormethod_change()
         run_dr()
+
+
+    def GENE(self):
+
+        def gcw(*args, **kwargs):
+            return self.ccwidget('geneview_' + args[0], *args[1:],
+                                 **kwargs, setnamer='gene')
+        #widgets
+        w = dict(
+            gene = gcw('gene_name', 'text'),
+            warn = widgets.HTML(),
+        )
+
+        # data
+        samples = self.counttable.columns
+        nosamples = len(samples)
+
+        #gene mapper
+        gmapper = CMAPPER(self, name='gene')
+        gmapper.method = 'gene'
+        defgene = self.counttable.std(1).sort_values().tail(1).index[0]
+        gmapper.value = defgene
+        w['gene'].value = defgene
+
+        #color mapper
+        cmapper = CMAPPER(self, name='color')
+        cmapper.method = 'metadata'
+        cmapper.value = 'plate'
+
+        #sort order
+        smapper = CMAPPER(self, name='sort')
+        smapper2 = CMAPPER(self, name='sort 2')
+
+        def get_sort_order():
+            sdf = pd.DataFrame(
+                {1: smapper.score.sort_values(),
+                 2: smapper2.score.sort_values()})
+            sdf = sdf.sort_values(by=[1,2])
+            return sdf.index
+
+        sort_order = get_sort_order()
+
+        pdata = ColumnDataSource(dict(
+            x=pd.Series(range(nosamples), index=sort_order),
+            y=gmapper.score.loc[sort_order],
+            score=cmapper.score.loc[sort_order],
+            ))
+
+        pdata2 = pd.DataFrame(dict(
+            x=pd.Series(range(nosamples), index=sort_order),
+            y=gmapper.score.loc[sort_order],
+            score=cmapper.score.loc[sort_order],
+        ))
+
+        bfigure = bokeh_figure(
+            plot_width=FIGSIZE[0],
+            plot_height=int(FIGSIZE[1]*0.8),
+            # tools = bokeh_tools,
+            y_range=bmodels.Range1d(gmapper.min(), gmapper.max()),
+            toolbar_sticky = False,
+            toolbar_location='left',
+            title='geneplot')
+
+        #bbar = bokeh_chart.Bar(pdata2, 'x', values='y', group='plate')
+        bfigure.title.text_color = 'darkgrey'
+        bfigure.title.text_font_style = 'normal'
+        bfigure.title.text_font_size= "12px"
+        bplot = bfigure.vbar(
+                x='x', width=0.5, bottom=0, top='y', source=pdata,
+                legend='score',
+                color=dict(field='score',
+                           transform=cmapper.colormapper))
+
+        blegend = bfigure.legend[0].items[0]
+        bcolorbar = ColorBar(
+            color_mapper=gmapper.colormapper, ticker=BasicTicker(),
+            formatter=BasicTickFormatter(precision=1), label_standoff=10,
+            border_line_color=None, location=(0,0))
+
+        null_colorbar_mapper = LinearColorMapper(palette='Inferno256',
+                                                 low=0, high=0)
+
+        if cmapper.discrete:
+            #remove ColorBar
+            bcolorbar.color_mapper = null_colorbar_mapper
+        else:
+            #remove legend
+            bfigure.legend[0].items.pop() #remove legend - we can add this later again
+
+        bfigure.add_layout(bcolorbar, 'right')
+
+        # # display widgets
+        display(ilabel('gene', w['gene']))
+        cmapper.display()
+        smapper.display()
+        smapper2.display()
+        display(w['warn'])
+        #for k, v in bplot.data_source.data.items():
+        #        print(k, v.shape, v.dropna().shape)
+        bhandle= bokeh_io.show(bfigure, notebook_handle=True)
+
+        #bhandle = bokeh_io.show(bbar, notebook_handle=True)
+
+        def warn(message):
+            w['warn'].value = '<b>{}</b>'.format(message)
+
+
+        def on_gene_change(*args):
+            gene = w['gene'].value
+            if not gene in self.counttable.index:
+                warn("gene {} is not in current counttable".format(gene))
+                return
+
+            sortorder = get_sort_order()
+            gmapper.value = gene
+
+            yval = gmapper.score.loc[sortorder]
+            bplot.data_source.data['y'] = yval
+            bokeh_io.push_notebook(handle=bhandle)
+
+        def on_sort_change(*args):
+            order = get_sort_order()
+            d = bplot.data_source.data
+            d['x'].index = order
+            d['y'] = d['y'].loc[order]
+            d['score'] = d['score'].loc[order]
+            bokeh_io.push_notebook(handle=bhandle)
+
+        def on_color_change(*args):
+            order = get_sort_order()
+            score = cmapper.score
+            score = score.loc[order]
+            bplot.data_source.data['score'] = score
+            bplot.glyph.fill_color['transform'] = cmapper.colormapper
+            cm = cmapper.colormapper
+            self._cm =cm
+
+            if cmapper.discrete:
+                warn('discrete')
+                bcolorbar.color_mapper = null_colorbar_mapper
+                if not bfigure.legend[0].items:
+                    bfigure.legend[0].items.append(blegend)
+            else:
+                warn('cont')
+                bcolorbar.color_mapper = cmapper.colormapper
+                if bfigure.legend[0].items:
+                    bfigure.legend[0].items.pop()
+
+            bokeh_io.push_notebook(handle=bhandle)
+
+        smapper.on_change = on_sort_change
+        smapper2.on_change = on_sort_change
+        cmapper.on_change = on_color_change
+        w['gene'].on_submit(on_gene_change)
+        on_gene_change
+        on_color_change
+        on_sort_change
+
+
+
+# generic functions retrieving intrinsic counttable & dimred metrics
+def intrinsic_generic_options(func, thelenota):
+    #appy `func` across the counttable & return the highest scoring values
+    rv = thelenota.counttable.apply(func, axis=1).sort_values(ascending=False).head(40)
+    rv = rv.reset_index()
+    rv = rv.apply(lambda x: '{}  ({:.3g})'.format(x.iloc[0], x.iloc[1]), axis=1)
+    return list(rv)
+
+def intrinsic_gene_score(thelenota, select):
+    if '(' in select:
+        select = select.split('(')[0].strip()
+
+    return thelenota.counttable.loc[select]
+
+class CMAPPER:
+    def __init__(self, thelenota, name='map'):
+
+        #some default settings
+        self.cpalette = 'Inferno256'
+        self._default_method = 'gene'
+        self._methods = ['gene', 'metadata']
+        self.on_change = lambda *args: None
+
+        self.intrinsic_methods = {
+            "high exp": (partial(intrinsic_generic_options, np.sum),
+                         intrinsic_gene_score),
+            "high stdev": (partial(intrinsic_generic_options, np.std),
+                           intrinsic_gene_score),
+            "high variance": (partial(intrinsic_generic_options, np.var),
+                           intrinsic_gene_score),
+        }
+        self._methods.extend(self.intrinsic_methods.keys())
+
+        # widgets
+        self.w_method = widgets.Dropdown(
+            value=self._default_method, options=self._methods,
+            layout=widgets.Layout(width='120px'))
+        self.w_select_txt = widgets.Text(
+            layout=widgets.Layout(width='120px'))
+        self.w_select_dd = widgets.Dropdown(
+            layout=widgets.Layout(width='120px'))
+
+        self.thelenota = thelenota
+        self.name = name
+        self.method = self._default_method
+
+        #select gene with highest sd as default
+        tgene = self.thelenota.counttable.std(1).sort_values().tail(1).index[0]
+        self.value = tgene
+
+    @property
+    def options(self):
+        return self._get_options(self.method)
+
+    def _get_options(self, method):
+        if method == 'gene':
+            return []
+        elif method == 'metadata':
+            return list(self.thelenota.metadata_info.index)
+        elif method in self.intrinsic_methods.keys():
+            option_func = self.intrinsic_methods[method][0]
+            return option_func(self.thelenota)
+
+        raise Exception("Invalid method", method)
+
+    def display(self):
+        def on_method_change(*args):
+            method = self.w_method.value
+            # only 'gene' has a free entry text field, make this visible
+            if method == 'gene':
+                self.w_select_txt.layout.display = 'flex'
+                self.w_select_dd.layout.display = 'none'
+            else:
+                self.w_select_txt.layout.display = 'none'
+                self.w_select_dd.layout.display = 'flex'
+
+            self.w_select_dd.options = self._get_options(method)
+
+
+        def on_select_change(*args):
+            #I hope late binding
+            return self.on_change()
+
+        self.w_method.observe(on_method_change, 'value')
+        self.w_select_txt.on_submit(on_select_change)
+        self.w_select_dd.observe(on_select_change, 'value')
+
+        on_method_change()
+        display(widgets.HBox([
+            widgets.Label(self.name, layout=widgets.Layout(width='100px')),
+            self.w_method, self.w_select_txt, self.w_select_dd]))
+
+
+    def get_method(self):
+        return self.w_method.value
+
+    def set_method(self, method):
+        self.w_method.value = method
+        self.w_select_dd.options = self._get_options(method)
+
+
+    method = property(get_method, set_method)
+
+    def set_value(self, value):
+        self._value = value
+        if self.method == 'gene':
+            self.w_select_txt.value = value
+        else:
+            self.w_select_dd.value = value
+
+    def get_value(self):
+        if  self.method == 'gene':
+            return self.w_select_txt.value
+        return self.w_select_dd.value
+
+    value = property(get_value, set_value)
+
+    @property
+    def discrete(self):
+        if self.method == 'gene':
+            return False
+        elif self.method == 'metadata':
+            mtype = self.value
+            minfo = self.thelenota.metadata_info.loc[mtype]
+            return minfo['datatype'].lower().startswith('cat')
+        else:
+            return False
+
+    def max(self):
+        return self.score.max()
+    def min(self):
+        return self.score.min()
+
+    @property
+    def colormapper(self):
+        s = self.score
+        if self.discrete:
+            return self.categorical_colormapper
+        else:
+            return self.linear_colormapper
+
+    @property
+    def linear_colormapper(self):
+        return LinearColorMapper(
+            palette=self.cpalette, low=self.min(), high=self.max())
+
+    @property
+    def categorical_colormapper(self):
+        return CategoricalColorMapper(
+            palette=bokeh.palettes.Category20[20] ,
+            factors=list(self.score.value_counts().index))
+
+    @property
+    def score(self):
+        if self.method in self.intrinsic_methods.keys():
+            value_func = self.intrinsic_methods[self.method][1]
+            rv = value_func(self.thelenota, self.value)
+        else:
+            rv = dict(
+                gene= self._score_gene,
+                metadata= self._score_metadata,
+            )[self.method]()
+        #ensure the returning score has the same index as the current counttable
+        if self.discrete:
+            rv = rv.fillna('<na>')
+        else:
+            rv = rv.fillna(0)
+
+        rv = rv.loc[self.thelenota.counttable.columns]
+        return rv
+
+
+    def _score_metadata(self):
+        md = self.thelenota.get_metadata(self.value)
+        return md
+
+    def _score_gene(self):
+        return self.thelenota.counttable.loc[self.value]
