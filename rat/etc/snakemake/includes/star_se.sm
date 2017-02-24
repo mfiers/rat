@@ -1,21 +1,19 @@
 
 from rat.snakehelper import pathmapper
 
-STAR_BAM = pathmapper(FASTQ_FILES, '30.star/bam/', '.fastq.gz',
-                      '.Aligned.sortedByCoord.out.bam')
+#STAR_count_table = pathmapper(FASTQ_FILES, '30.star/', '.fastq.gz', '.tsv')
+STAR_counts = pathmapper(FASTQ_FILES, '30.star/counts/', '.fastq.gz', '.counts')
 
 rule star:
-    input: STAR_BAM
+	input: files=STAR_counts,
+	       groups="group.tsv",
+	output: "50.count_tables/star.counts.tsv",
+		"50.count_tables/star_grouped.counts.tsv"
+	script: "scripts/count_table.py"
 
 
-# rule kallisto:
-#     input: rules.kallisto_acc.output
-#     output:
-#         plot1="test.plot.out"
-#     script: "scripts/kallisto_summary2.py"
 
-
-rule star_one:
+rule star_run:
     input:
         fq="00.fastq/{sample}.fastq.gz",
         db=expand("{dbdir}/{organism}/{build}/star", **config)
@@ -29,7 +27,7 @@ rule star_one:
         echo "out: {output}"
         STAR \
             --outSAMtype BAM SortedByCoordinate \
-            --genomeLoad LoadAndKeep \
+            --genomeLoad LoadAndKeep\
             --genomeDir {input.db} \
             --outFileNamePrefix 30.star/bam/{wildcards.sample}. \
             --readFilesCommand zcat \
@@ -38,3 +36,25 @@ rule star_one:
             --chimSegmentMin 18 \
             --readFilesIn {input.fq}
         """
+
+rule feature_Counts:
+    input:bam=rules.star_run.output,GTF=expand("{dbdir}/{organism}/{build}/annotation.gtf", **config)  
+    output:"30.star/counts/{sample}.counts"
+    shell:	"""
+	module load Subread/1.5.1
+	featureCounts -a {input.GTF} -o {output} {input.bam}
+	"""
+
+#rule make_count_table:
+#	input: 
+#		count_folder="30.star/counts/" 
+#	output: 
+#		"29.star/count_table.tsv"
+#	script: 
+#		scripts/count_table.py
+
+			
+
+
+
+

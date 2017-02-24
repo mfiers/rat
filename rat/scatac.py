@@ -6,6 +6,10 @@ Includes functions for making and counting aggregates...
 import os
 
 from celery import Celery
+import celery_dill_serializer
+
+celery_dill_serializer.register_dill()
+
 import pandas as pd
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
@@ -14,12 +18,14 @@ from sklearn.cluster import MeanShift, estimate_bandwidth
 import rat.celery_core
 app = rat.celery_core.get_celery_app()
 
+app.conf.update(accept_content = ['json', 'pickle', 'dill'],
+                task_serializer = 'dill',
+                result_serializer = 'dill')
+
 import os
 import pandas as pd
 import pysam
 from scipy import stats
-
-
 
 @app.task
 def makeSimulatedCell(numReads, bulkFile, name, directory, debug=False):
@@ -205,8 +211,6 @@ def ptm(template, match, mask=[]):
         match = newMatch
     return stats.pearsonr(template, match)
 
-@app.task
+@app.task(serializer='dill')
 def anyTask(fun, *args):
-    import dill as pickle
-    f = pickle.loads(fun)
-    return f(*args)
+    return fun(*args)

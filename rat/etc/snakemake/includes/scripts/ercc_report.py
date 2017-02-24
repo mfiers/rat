@@ -1,5 +1,5 @@
 import numpy as np
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import pandas as pd
 from path import Path
 
@@ -48,10 +48,10 @@ stats['log_cv'] = np.log10(stats['sd'] / stats['mean'])
 stats['cv2'] = stats['sd'] / (stats['mean']**2)
 stats['log_cv2'] = np.log10(stats['sd'] / (stats['mean']**2))
 
-stats.plot.scatter(x='log_mean', y='log_cv')
-plt.savefig(snakemake.output.plotcv, dpi=200)
+#stats.plot.scatter(x='log_mean', y='log_cv')
+#plt.savefig(snakemake.output.plotcv, dpi=200)
 
-stats.plot.scatter(x='log_mean', y='log_cv2')
-plt.savefig(snakemake.output.plotcv2, dpi=200)
+#stats.plot.scatter(x='log_mean', y='log_cv2')
+#plt.savefig(snakemake.output.plotcv2, dpi=200)
 
 stats.to_csv(snakemake.output.stats, sep="\t")

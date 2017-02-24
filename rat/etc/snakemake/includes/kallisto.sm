@@ -2,37 +2,38 @@
 from rat.snakehelper import pathmapper
 
 
-KALLISTO_OUT = pathmapper(FASTQ_FILES, '30.kallisto/out/', '.fastq.gz', '.kallisto/abundance.tsv')
+KALLISTO_OUT = pathmapper(FASTQ_FILES, '40.kallisto/out/', '.fastq.gz', '_kallisto/abundance.tsv')
 
-
-rule kallisto_acc:
-    input: KALLISTO_OUT
-    output:
-        counts="30.kallisto/counts.tsv",
-        tpm="30.kallisto/tpm.tsv"        
+rule kallisto:
+    input: files=KALLISTO_OUT,groups="group.tsv",
+    output: counts="50.count_tables/kallisto.counts.tsv",
+            grouped="50.count_tables/kallisto_grouped.tsv"        
     script: "scripts/kallisto_summary.py"
 
 
-rule kallisto:
-    input: rules.kallisto_acc.output
-    output:
-        plot1="test.plot.out"
-    script: "scripts/kallisto_summary2.py"
-
+#rule kallisto:
+#    input: rules.kallisto_acc.output
+#    output:
+#        plot1="test.plot.out"
+#    script: "scripts/kallisto_summary2.py"
+	
 
 rule kallisto1:
     input:
         fq="00.fastq/{sample}.fastq.gz",
         db=expand("{dbdir}/{organism}/{build}/kallisto", **config)
+
     output:
-        "30.kallisto/out/{sample}.kallisto"
+        "40.kallisto/out/{sample}_kallisto",
+	"40.kallisto/out/{sample}_kallisto/abundance.tsv"
     shell:
         """
         echo "db: {input.db}"
         echo "input fastq: {input.fq}"
         echo "out: {output}"
+	mkdir -p {output[0]}
         kallisto quant -t {config[threads]} \
-            -i {input.db} -o {output} -b 100 --single -l 200 -s 20 \
+            -i {input.db} -o {output[0]} -b 100 --single -l 200 -s 20 \
             <(zcat {input.fq})
         """
 

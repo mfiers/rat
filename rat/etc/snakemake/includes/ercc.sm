@@ -12,8 +12,8 @@ rule ercc:
         grouped = "20.ercc/ercc_group.tsv",
         grouped_rpm = "20.ercc/ercc_group_rpm.tsv",
         stats = "20.ercc/ercc_stats.tsv",
-        plotcv = "20.ercc/ercc_stat_mean_cv.png",
-        plotcv2 = "20.ercc/ercc_stat_mean_cv2.png",
+       # plotcv = "20.ercc/ercc_stat_mean_cv.png",
+       # plotcv2 = "20.ercc/ercc_stat_mean_cv2.png",
     script: "scripts/ercc_report.py"
 
            
