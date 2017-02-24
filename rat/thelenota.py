@@ -1,7 +1,9 @@
 
+import collections
 import copy
 from functools import lru_cache, partial
 import io
+import itertools
 import json
 import logging
 import pickle
@@ -161,9 +163,18 @@ def run_nmf(mat):
     meta['method'] = 'pca'
     return meta, tra
 
+
 def run_tsne(mat, get_param):
     from sklearn.decomposition import PCA
+
     from sklearn.manifold import TSNE
+    #
+    #
+    # try:
+    #     from MulticoreTSNE import MulticoreTSNE as TSNE
+    #     TSNE = partial(TSNE, n_jobs=-1) #use all available cpus
+    # except ImportError:
+    #     from sklearn.manifold import TSNE
 
     param = get_param()
     pca_var_cutoff = param.get('pca_var_cutoff', 0.2)
@@ -181,7 +192,7 @@ def run_tsne(mat, get_param):
         nodim = 2 # ensure at least two dimentions used
     ptra = pd.DataFrame(pcafit.transform(mat.T))
     tsne = TSNE(random_state=42, **tsne_param)
-    ttra = pd.DataFrame(tsne.fit_transform(ptra.iloc[:,:nodim]), index=mat.columns)
+    ttra = pd.DataFrame(tsne.fit_transform(ptra.iloc[:,:nodim].as_matrix()), index=mat.columns)
 
     meta = pd.DataFrame(index=ttra.columns)
     meta['method'] = 'tsne'
@@ -366,6 +377,8 @@ class Thelenota:
         else:
             self.geneset_dir = Path(geneset_dir)
 
+        self._tsne_params = """angle early_exaggeration learning_rate
+            pca_var_cutoff perplexity""".split()
 
     def __str__(self):
         return "<thelenota {}>".format(self.basedir)
@@ -554,6 +567,50 @@ class Thelenota:
         on_change()
 
     #
+    # Precalc DimRed
+    #
+    def precalc(self, method, **param):
+
+        if method == 'tsne':
+            assert set(param.keys()) == set(self._tsne_params)
+
+        keys, vals = zip(*param.items())
+        vals = [ x if isinstance(x, collections.Iterable) else [x]
+                for x in vals]
+
+        allmat = []
+
+        for v in itertools.product(*vals):
+            tparam = dict(zip(keys, v))
+            def dr_name():
+                """ Make a unqiue name for this run -
+                for caching purposes - including tsne parameters
+                """
+                rv = '{}'.format(self.counttable_name)
+                rv += '_{}'.format(method)
+                if method == 'tsne':
+                    for k, v in sorted(tparam.items()):
+                        rv += '__{}_{}'.format(k,v)
+                return rv
+
+            @dcache(self, 'dimred_table', 'mtsv', dr_name)
+            def run_dr_2(*_):
+                counts = self.counttable
+                if method == 'pca':
+                    stats, trans = run_pca(counts)
+                elif method == 'nmf':
+                    stats, trans = run_nmf(counts)
+                elif method == 'tsne':
+                    stats, trans = run_tsne(counts, lambda: tparam)
+                else:
+                    raise NotImplemented()
+                return stats, trans
+
+            stats, trans = run_dr_2()
+            allmat.append((tparam, stats, trans))
+
+        return allmat
+    #
     # mean cell expression plot
     #
     def mean_cell_expression(self):
@@ -666,9 +723,13 @@ class Thelenota:
         sl_set_b = self.ccwidget(
             "diffx_group_b_set", "dropdown", lambda: 'difx', None)
 
-        sl_go = widgets.Button(description='Go')
-        sl_save_set = widgets.Button(description='Save')
-        sl_enrichr_link = widgets.Button(description='Save & Enrichr')
+        self.DIFX_stats = None
+
+        butlay = widgets.Layout(width="120px")
+        sl_go = widgets.Button(description='Go', layout=butlay)
+        sl_check = widgets.Button(description='Check', layout=butlay)
+        sl_save_set = widgets.Button(description='Save', layout=butlay)
+        sl_enrichr_link = widgets.Button(description='S&Enrichr', layout=butlay)
         sl_set_name = self.ccwidget('diffx_setname', 'text', lambda: 'difx',
                                     "set_name")
 
@@ -682,6 +743,8 @@ class Thelenota:
         pdata = ColumnDataSource(dict(
             x=[random.uniform(-10, 10) for x in range(nogenes)],
             y=[random.uniform(-10, 10) for x in range(nogenes)],
+            mean_a = [3.1] * nogenes,
+            mean_b = [-3.1] * nogenes,
             size=[0.1] * nogenes,
             desc=list(self.counttable.index),
             score=colv))
@@ -700,6 +763,8 @@ class Thelenota:
             bmodels.HoverTool(tooltips=[
                                     ("(mean,lfc)", "($x, $y)"),
                                     ("desc", "@desc"),
+                                    ('mean a', "@mean_a"),
+                                    ('mean b', "@mean_b"),
                                 ]),
             bmodels.BoxSelectTool(callback = select_callback),
             bmodels.PanTool(),
@@ -757,7 +822,7 @@ class Thelenota:
             ENRICHR_URL = 'http://amp.pharm.mssm.edu/Enrichr/addList'
             response = requests.post(ENRICHR_URL, files=payload)
             if not response.ok:
-                print(response)
+                #print(response)
                 raise Exception('Error analyzing gene list')
 
             data = json.loads(response.text)
@@ -793,6 +858,7 @@ class Thelenota:
         sl_group_b.observe(update_groups, 'value')
 
         def run(*args):
+            title = 'QDDE'
             all_samples_set = set(self.counttable.columns)
             logdata = pd.Series()
             normalize = sl_norm.value
@@ -802,6 +868,8 @@ class Thelenota:
 
             set_a = sl_set_a.value.split('--')[0].strip()
             set_b = sl_set_b.value.split('--')[0].strip()
+
+            title += ' A:{}/{} B:{}/{}'.format(group_a, set_a, group_b, set_b)
 
             meta_a = self.get_metadata(group_a)
             meta_b = self.get_metadata(group_b) \
@@ -822,6 +890,7 @@ class Thelenota:
             logdata['cells in b'] = len(sample_b)
 
             cnts = self.counttable
+
 
             if normalize:
                 cnts = 1e6 * cnts / cnts.sum()
@@ -846,13 +915,25 @@ class Thelenota:
 
             stats['a/b'] = stats['mean_a'] / stats['mean_b']
             stats['lfc'] = np.log2(stats['a/b'])
+            # lfc_l = stats['lfc']
+
+            stats['no_cells_in_a'] = len(sample_a)
+            stats['no_cells_in_b'] = len(sample_b)
+
+            stats['name_a'] =  '{}/{}'.format(group_a, set_a)
+            stats['name_b'] =  '{}/{}'.format(group_b, set_b)
+
             #print(stats.head())
             #stats = stats.sort_values(by='lfc', ascending=False)
             #bplot.data_source.data['x'] = stats['mean_a']
             #bplot.data_source.data['y'] = stats['mean_b']
             bplot.data_source.data['x'] = stats['mean_all']
             bplot.data_source.data['y'] = stats['lfc']
+            bplot.data_source.data['mean_a'] = stats['mean_a']
+            bplot.data_source.data['mean_b'] = stats['mean_b']
             m = stats['mean_all'].max()
+            bfigure.title.text = title
+            self.DIFX_stats = stats
             bplot.data_source.data['size'] = [0.01 * m] * nogenes
             bokeh_io.push_notebook(handle=bhandle)
 
@@ -867,7 +948,7 @@ class Thelenota:
         # tabs.set_title(0, 'Define sets')
         # display(tabs) sl_enrichr_link html_link_w
 
-        display(widgets.HBox([sl_go, sl_save_set, sl_enrichr_link]))
+        display(widgets.HBox([sl_go, sl_check, sl_save_set, sl_enrichr_link]))
         display(html_w)
         display(html_link_w)
 
@@ -906,6 +987,10 @@ class Thelenota:
             widgets.IntSlider(value=67, min=2, max=99, step=5),
             67, self, 'dimred_perplexity', dr_name_simple, fmt='int')
 
+        drangle_w = cache_widget_value(
+            widgets.FloatSlider(value=0.5, min=0.05, max=0.95, step=0.05),
+            0.5, self, 'dimred_angle', dr_name_simple, fmt='float')
+
         drlrate_w = cache_widget_value(
             widgets.IntSlider(value=920, min=20, max=10000, step=50),
             920, self, 'dimred_learning_rate', dr_name_simple, fmt='int')
@@ -924,27 +1009,28 @@ class Thelenota:
         drforce_w = widgets.Checkbox(description='force',
                         layout = widgets.Layout(width='300px'))
 
-        clmethod_w = self.ccwidget(
-            'color_method', 'dropdown', dr_name_simple, 'gene',
-            options=['gene', 'genes of interest', 'metadata', 'gene sigatures'])
 
-        clgeneset_w = self.ccwidget(
-            'genes_of_interest_select', 'dropdown', dr_name_simple, 'DR Corr',
-            options=['Top SD', 'Top expressing', 'DR Corr', 'DR Corr~0'],
-            disabled=True)
+        @dcache(self, 'dimred_correlating_genes', 'tsv', dr_name)
+        def get_dr_correlating(*_):
+            stats, trans = run_dr_2()
+            c1 = self.counttable.apply(
+                lambda x: pearsonr(x, trans.iloc[:,0])[0], axis=1)
+            c2 = self.counttable.apply(
+                lambda x: pearsonr(x, trans.iloc[:,1])[0], axis=1)
+            return pd.DataFrame({0: c1, 1: c2})
 
-        clgenesetchoice_w = self.ccwidget(
-            'geneset_to_use_for_color', 'dropdown', dr_name_simple, None,
-            options=[], disabled=True)
 
-        clmetadata_w = self.ccwidget(
-            'gene_metadataset_to_use_for_color', 'dropdown', dr_name_simple, None,
-            options=[], disabled=True)
+        def get_top_correlating(*_):
+            d = get_dr_correlating().abs().sum(1).sort_values(ascending=False)
+            d = d.head(40)
+            d = d.reset_index()
+            d = d.apply(lambda x: '{}  ({:.3g})'.format(x.iloc[0], x.iloc[1]), axis=1)
+            return list(d)
 
-        cl_gene_sign_w = self.ccwidget(
-            'gene_signature_color', 'dropdown', dr_name_simple, None,
-            options=[], disabled=True)
-        clgene_w = widgets.Text(layout=wstyle)
+        tcolormap = CMAPPER(
+            self, extra_intrinsic_methods={
+                "top DR correlate": (get_top_correlating, intrinsic_gene_score)
+                })
 
         sl_group_name_w = cache_widget_value(
             widgets.Text(layout=wstyle), 'thelenota', self,
@@ -972,14 +1058,10 @@ class Thelenota:
         clu_w = dict(cluster_method = clu_method_w,
                     eps = clu_dbscan_eps_w)
 
-        cl_w = {'gene': [clgene_w],
-                'genes of interest': [clgeneset_w, clgenesetchoice_w],
-                'metadata': [clmetadata_w],
-                'gene sigatures': []}
-
         html_w = widgets.HTML()
         dr_w = dict(method=drmethod_w,
                     perplexity=drperplex_w,
+                    angle=drangle_w,
                     learning_rate=drlrate_w,
                     early_exaggeration=drearly_w,
                     pca_var_cutoff=dr_tsne_pcavar_cutoff_w)
@@ -992,7 +1074,6 @@ class Thelenota:
         color_mapper = LinearColorMapper(palette="Inferno256", low=-0.3, high=2.5)
         topgene = self.counttable.std(1).sort_values().tail(1).index[0]
         colv = list(self.counttable.loc[topgene])
-        clgene_w.value = topgene
         pdata = ColumnDataSource(dict(
             x=[random.uniform(-10, 10) for x in range(nosamples)],
             y=[random.uniform(-10, 10) for x in range(nosamples)],
@@ -1065,6 +1146,7 @@ class Thelenota:
 
             tmeta.loc[self.selected] = groupname
 
+            self.metadata_dir.makedirs_p()
             outfile = self.metadata_dir / '{}.tsv'.format(groupset)
             moutfile = self.metadata_dir / '{}.meta.tsv'.format(groupset)
 
@@ -1105,74 +1187,24 @@ class Thelenota:
                 d[k] = v.value
             return d
 
-        def on_colormethod_change(*args):
-            clmethod = clmethod_w.value
-            for cl_w_name, cl_widgets in cl_w.items():
-                for cl_widget in cl_widgets:
-                    cl_widget.disabled = (cl_w_name != clmethod)
-
-            if clmethod == 'metadata':
-                clmetadata_w.options = list(self.metadata_info.index)
-            elif clmethod == 'gene sigurate':
-                sigsets = self.genesets
-                cl_gene_sign_w.options = sigsets
-                cl_gene_sign_w.value = sigsts[0]
-
-            elif clmethod == 'genes of interest':
-                gset = clgeneset_w.value
-                if gset == 'Top SD':
-                    clgenesetchoice_w.options = list(
-                        self.counttable.std(1).sort_values(ascending=False)\
-                            .head(50).index)
-                elif gset == 'Top expressing':
-                    clgenesetchoice_w.options = list(
-                        self.counttable.mean(1).sort_values(ascending=False)\
-                            .head(50).index)
-                elif gset == 'DR Corr':
-                    corr = get_top_correlating().max(1)
-                    corr = corr.sort_values(ascending=False)[:50]
-                    corr = ['{} -- {:.2g}'.format(a, b)
-                            for (a, b) in zip(corr.index, corr)]
-                    clgenesetchoice_w.options = corr
-                elif gset == 'DR Corr~0':
-                    corr = get_top_correlating_not0().max(1)
-                    corr = corr.sort_values(ascending=False)[:50]
-                    corr = ['{} -- {:.2g}'.format(a, b)
-                            for (a, b) in zip(corr.index, corr)]
-                    clgenesetchoice_w.options = corr
-
-        clmethod_w.observe(on_colormethod_change, 'value')
-        clgeneset_w.observe(on_colormethod_change, 'value')
-
-
         def force_refresh():
             "Force to refresh calculations? Or can we use the cache??"
             return drforce_w.value
 
-        @dcache(self, 'dimred_correlating_not0_genes', 'tsv', dr_name, force_refresh)
-        def get_top_correlating_not0(*_):
-            stats, trans = run_dr_2()
-            def pearson_not_0(a, b):
-                aa = a[a>0]
-                if len(aa) < 10:
-                    return 0, 1
-                return pearsonr(a[a>0], b[a>0])
-
-            c1 = np.abs(self.counttable.apply(
-                lambda x: pearson_not_0(x, trans.iloc[:,0])[0], axis=1))
-            c2 = np.abs(self.counttable.apply(
-                lambda x: pearson_not_0(x, trans.iloc[:,1])[0], axis=1))
-            return pd.DataFrame({0: c1, 1: c2})
-
-
-        @dcache(self, 'dimred_correlating_genes', 'tsv', dr_name, force_refresh)
-        def get_top_correlating(*_):
-            stats, trans = run_dr_2()
-            c1 = np.abs(self.counttable.apply(
-                lambda x: pearsonr(x, trans.iloc[:,0])[0], axis=1))
-            c2 = np.abs(self.counttable.apply(
-                lambda x: pearsonr(x, trans.iloc[:,1])[0], axis=1))
-            return pd.DataFrame({0: c1, 1: c2})
+        # @dcache(self, 'dimred_correlating_not0_genes', 'tsv', dr_name, force_refresh)
+        # def get_top_correlating_not0(*_):
+        #     stats, trans = run_dr_2()
+        #     def pearson_not_0(a, b):
+        #         aa = a[a>0]
+        #         if len(aa) < 10:
+        #             return 0, 1
+        #         return pearsonr(a[a>0], b[a>0])
+        #
+        #     c1 = np.abs(self.counttable.apply(
+        #         lambda x: pearson_not_0(x, trans.iloc[:,0])[0], axis=1))
+        #     c2 = np.abs(self.counttable.apply(
+        #         lambda x: pearson_not_0(x, trans.iloc[:,1])[0], axis=1))
+        #     return pd.DataFrame({0: c1, 1: c2})
 
         @dcache(self, 'dimred_table', 'mtsv', dr_name, force_refresh)
         def run_dr_2(*_):
@@ -1191,80 +1223,34 @@ class Thelenota:
                 raise NotImplemented()
             return stats, trans
 
-        def _get_color_scale():
-            clmethod = clmethod_w.value
-            plotinfo['color_on'] = clmethod
-            ctype = 'continuous'
+        def warn(message):
+            html_w.value = '<b>{}</b>'.format(message)
 
-            colv = pd.Series(bplot.data_source.data['score'])
-            if clmethod == 'gene':
-                plotinfo['color_gene'] = '<invalid>'
-                gene = clgene_w.value
-                if "Invalid gene" in clgene_w.value:
-                    return
-                if not gene in self.counttable.index:
-                    clgene_w.value = 'Invalid gene: {}'.format(gene)
-                    return
-                plotinfo['color_gene'] = gene
-                colv = self.counttable.loc[gene]
-            elif clmethod == 'genes of interest':
-                gene = clgenesetchoice_w.value
-                if ' -- ' in gene:
-                    gene = gene.split('--')[0].strip()
-                plotinfo['color_gene'] = gene
-                plotinfo['color_set'] = clgeneset_w.value
-                colv = self.counttable.loc[gene]
+        def set_color_scale():
+            score = tcolormap.score
+            method = tcolormap.method
 
-            elif clmethod == 'metadata':
-                mkey = clmetadata_w.value
-                plotinfo['metadata_key'] = mkey
+            warn('set color scale {}/{}'.format(method, tcolormap.value))
 
-                minfo = self.metadata_info.loc[mkey]['datatype']
-                ctype = minfo
+            color_mapper = tcolormap.colormapper
+            bplot.glyph.fill_color['transform'] = color_mapper
+            bplot.data_source.data['score'] = score
 
-                colv = self.get_metadata(mkey)
-                extra_cols = set(self.counttable.columns) - set(colv.index)
-                if len(extra_cols) > 0:
-                    colv = colv.append(pd.Series('na', index=extra_cols))
-                colv[extra_cols] = 'na'
-                ##print(extra_cols)
-                #print(len(extra_cols))
-                colv = colv[sorted(self.counttable.columns)]
+            bcolorbar.color_mapper = color_mapper
 
-            if ctype == 'categorical':
-                color_mapper = CategoricalColorMapper(
-                    palette=bokeh.palettes.Category10[10] ,
-                    factors=list(colv.value_counts().index))
-                colorbar_mapper = LinearColorMapper(palette='Inferno256',
-                                                    low=0, high=0)
-                bcolorbar.color_mapper = colorbar_mapper
+            if tcolormap.discrete:
                 if not bfigure.legend[0].items:
                     bfigure.legend[0].items.append(blegend)
-
             else:
-                color_mapper = LinearColorMapper(palette="Inferno256",
-                                                  low=colv.min(),
-                                                  high=colv.max())
-
-                bcolorbar.color_mapper = color_mapper
                 if bfigure.legend[0].items:
                     bfigure.legend[0].items.pop()
 
-            #print(colv.shape, colv.dropna().shape)
-            bplot.data_source.data['score'] = colv
-            bplot.glyph.fill_color['transform'] = color_mapper
             bplot.glyph.line_width=0
             bplot.glyph.line_alpha=0
 
         def _create_title():
-            cmethod = clmethod_w.value
-            if cmethod == 'gene':
-                cmethod += ':{}'.format(clgene_w.value)
-            elif cmethod == 'metadata':
-                cmethod += ':{}'.format(clmetadata_w.value)
-            elif cmethod == 'genes of interest':
-                cmethod += ':{} {}'.format(
-                    clgeneset_w.value, clgenesetchoice_w.value)
+            cmethod = '{}/{}'.format(tcolormap.method,
+                                      tcolormap.value)
             return '{}/{}/{}'.format(
                 self.experiment_name, self.counttable_name,
                 cmethod)
@@ -1284,10 +1270,9 @@ class Thelenota:
                 bplot.data_source.data['y'] = d2
 
             bfigure.title.text = _create_title()
-            _get_color_scale()
-            #html_w.value = '<pre>{}</pre>'.format(
-            #        str(pd.Series(plotinfo)).rsplit("\n", 1)[0])
+            set_color_scale()
             bokeh_io.push_notebook(handle=bhandle)
+
 
         def run_dr_color(*_):
             """ refresh dr scatter plot - color only """
@@ -1308,10 +1293,10 @@ class Thelenota:
                 raise
             drrun_w.button_style = ''
 
-
+        tcolormap.on_change = run_dr_color
         drrun_w.on_click(run_dr)
-        clgenesetchoice_w.observe(run_dr_color, 'value')
-        clmetadata_w.observe(run_dr_color, 'value')
+        # clgenesetchoice_w.observe(run_dr_color, 'value')
+        # clmetadata_w.observe(run_dr_color, 'value')
 
 
         # set up bokeh
@@ -1358,22 +1343,22 @@ class Thelenota:
         self._bplot = bplot
 
         bcolorbar = ColorBar(
-            color_mapper=color_mapper, ticker=BasicTicker(),
+            color_mapper=tcolormap.colormapper, ticker=BasicTicker(),
             formatter=BasicTickFormatter(precision=1), label_standoff=10,
             border_line_color=None, location=(0,0))
 
 
+
         bfigure.add_layout(bcolorbar, 'right')
         blegend = bfigure.legend[0].items[0]
-        #for k, v in self._pdata.data.items():
-    #        print(k, len(v), pd.Series(v).min())
-#            print(pd.Series(v).head())
+
         bhandle= bokeh_io.show(bfigure, notebook_handle=True)
 
         tab_children = []
         tab_children.append(widgets.VBox([
             ilabel('method', drmethod_w),
             ilabel('perplexity', drperplex_w),
+            ilabel('angle', drangle_w),
             ilabel('learning rate', drlrate_w),
             ilabel('early exagg.', drearly_w),
             ilabel('PCA var. cutoff', dr_tsne_pcavar_cutoff_w),
@@ -1381,11 +1366,7 @@ class Thelenota:
             ]))
 
         tab_children.append(widgets.VBox([
-            ilabel('method', clmethod_w),
-            ilabel('geneset', clgeneset_w, clgenesetchoice_w),
-            ilabel('metadata', clmetadata_w),
-            ilabel('signature', cl_gene_sign_w),
-            ilabel('gene', clgene_w),
+            tcolormap.prepare_display()
         ]))
 
         tab_children.append(widgets.VBox([
@@ -1413,7 +1394,7 @@ class Thelenota:
         display(html_w)
 
         #run a few on_change functions so that all is in sync
-        on_colormethod_change()
+        #on_colormethod_change()
         run_dr()
 
 
@@ -1574,7 +1555,6 @@ class Thelenota:
         on_sort_change
 
 
-
 # generic functions retrieving intrinsic counttable & dimred metrics
 def intrinsic_generic_options(func, thelenota):
     #appy `func` across the counttable & return the highest scoring values
@@ -1586,17 +1566,85 @@ def intrinsic_generic_options(func, thelenota):
 def intrinsic_gene_score(thelenota, select):
     if '(' in select:
         select = select.split('(')[0].strip()
-
     return thelenota.counttable.loc[select]
 
+def find_signature_sets(thelenota):
+    ssets = [x.basename()
+             for x in Path(thelenota.geneset_dir).dirs()]
+    return ssets
+
+def find_signatures(setname, thelenota):
+    gsets = [x.basename().replace('.grp', '')
+             for x
+             in (Path(thelenota.geneset_dir) / setname).glob('*.grp')]
+    return gsets
+
+
+def signature_score(signature_set, thelenota, select):
+    gset =  Path(thelenota.geneset_dir) \
+                / signature_set \
+                / '{}.grp'.format(select)
+    gset = gset.open().read().split()
+
+    # ## use AUCell
+    # def namer():
+    #     return '{}__{}'.format(thelenota.counttable_name,
+    #                         select)
+
+    ct = thelenota.counttable # shortcut
+    rnks = ct.rank(method='min', ascending=True,
+                   na_option='bottom')
+    #normalize to the number of genes
+    rnks /= ct.shape[0]
+    notgset = set(ct.index) - set(gset)
+    q = rnks.loc[gset].dropna().mean()
+    r = rnks.loc[notgset].dropna().mean()
+#    print( (q-r).min(), (q-r).max())
+    score = rnks.loc[gset].dropna().mean() - rnks.loc[notgset].mean()
+    return score
+
+    # @dcache(thelenota, 'aucell_score', 'tsv', namer)
+    # def run_aucell():
+    #     import warnings
+    #     import rpy2.robjects as robjects
+    #     from rpy2.robjects.packages import importr
+    #     from rpy2.robjects import pandas2ri
+    #     with warnings.catch_warnings():
+    #         warnings.simplefilter("ignore")
+    #         pandas2ri.activate()
+    #         aucell = importr('AUCell')
+    #         genesets = robjects.r.list(gset=gset)
+    #         aurank = aucell.AUCell_buildRankings(thelenota.counttable, plotStats=False)
+    #         try:
+    #             cauc = aucell.AUCell_calcAUC(genesets, aurank)
+    #             cauc = pd.DataFrame({select:np.array(cauc)[:,0]},
+    #                                 index=thelenota.counttable.columns)
+    #         except RRuntimeError:
+    #             lg.warning("AUCell fail!")
+    #             cauc = pd.DataFrame({select:[0]*len(thelenota.counttable.columns)},
+    #                                 index=thelenota.counttable.columns)
+    #     cauc = pd.DataFrame({select:np.array(cauc)[:,0]},
+    #                         index=thelenota.counttable.columns)
+    #     return cauc
+    #
+    # return run_aucell()[select]
+
 class CMAPPER:
-    def __init__(self, thelenota, name='map'):
+
+    def __init__(self,
+                 thelenota,
+                 name='map',
+                 extra_intrinsic_methods = None):
 
         #some default settings
-        self.cpalette = 'Inferno256'
+        self.cpalette = 'Viridis256'
         self._default_method = 'gene'
+        self.thelenota = thelenota
+        self.name = name
         self._methods = ['gene', 'metadata']
         self.on_change = lambda *args: None
+
+#            "signatures": (find_signatures, signature_score),
 
         self.intrinsic_methods = {
             "high exp": (partial(intrinsic_generic_options, np.sum),
@@ -1606,24 +1654,38 @@ class CMAPPER:
             "high variance": (partial(intrinsic_generic_options, np.var),
                            intrinsic_gene_score),
         }
+        print(self.thelenota)
+        for sigset in find_signature_sets(self.thelenota):
+            self.intrinsic_methods['S:{}'.format(sigset)] = (
+                partial(find_signatures, sigset),
+                partial(signature_score, sigset)
+            )
+
+        if not extra_intrinsic_methods is None:
+            self.intrinsic_methods.update(extra_intrinsic_methods)
+
         self._methods.extend(self.intrinsic_methods.keys())
 
         # widgets
         self.w_method = widgets.Dropdown(
             value=self._default_method, options=self._methods,
-            layout=widgets.Layout(width='120px'))
+            layout=widgets.Layout(width='140px'))
         self.w_select_txt = widgets.Text(
-            layout=widgets.Layout(width='120px'))
+            layout=widgets.Layout(width='140px'))
         self.w_select_dd = widgets.Dropdown(
-            layout=widgets.Layout(width='120px'))
+            layout=widgets.Layout(width='140px'))
+        self.w_binnify = widgets.Checkbox(
+            value=False, layout=widgets.Layout(width='30px'))
+        self.w_bins = widgets.IntSlider(
+            min=2, max=10, value=4,
+            layout=widgets.Layout(display='none', width='150px'))
 
-        self.thelenota = thelenota
-        self.name = name
         self.method = self._default_method
 
         #select gene with highest sd as default
         tgene = self.thelenota.counttable.std(1).sort_values().tail(1).index[0]
         self.value = tgene
+
 
     @property
     def options(self):
@@ -1640,7 +1702,7 @@ class CMAPPER:
 
         raise Exception("Invalid method", method)
 
-    def display(self):
+    def prepare_display(self):
         def on_method_change(*args):
             method = self.w_method.value
             # only 'gene' has a free entry text field, make this visible
@@ -1650,22 +1712,35 @@ class CMAPPER:
             else:
                 self.w_select_txt.layout.display = 'none'
                 self.w_select_dd.layout.display = 'flex'
-
             self.w_select_dd.options = self._get_options(method)
 
+        def on_bin_change(*args):
+            self.w_bins.layout.display = 'flex' \
+                if self.w_binnify.value else 'none'
 
         def on_select_change(*args):
             #I hope late binding
             return self.on_change()
 
-        self.w_method.observe(on_method_change, 'value')
+        self.w_binnify.observe(on_bin_change, 'value') # show binslider
+        self.w_method.observe(on_method_change, 'value') # show method vars
+        self.w_binnify.observe(on_select_change, 'value')
+        self.w_bins.observe(on_select_change, 'value')
         self.w_select_txt.on_submit(on_select_change)
         self.w_select_dd.observe(on_select_change, 'value')
 
         on_method_change()
-        display(widgets.HBox([
-            widgets.Label(self.name, layout=widgets.Layout(width='100px')),
-            self.w_method, self.w_select_txt, self.w_select_dd]))
+
+        return widgets.HBox([
+            widgets.Label(self.name,
+                          layout=widgets.Layout(width='100px', padding="5px 0px 0px 0px")),
+            self.w_method, self.w_select_txt, self.w_select_dd,
+             widgets.Label('bin', layout=widgets.Layout(padding="5px 0px 0px 0px")),
+             self.w_binnify, self.w_bins])
+
+
+    def display(self):
+        display(self.prepare_display())
 
 
     def get_method(self):
@@ -1693,7 +1768,9 @@ class CMAPPER:
     value = property(get_value, set_value)
 
     @property
-    def discrete(self):
+    def discrete_intrinsic(self):
+        """ Is the underlying data discrete - independent of
+            forced binning """
         if self.method == 'gene':
             return False
         elif self.method == 'metadata':
@@ -1703,8 +1780,16 @@ class CMAPPER:
         else:
             return False
 
+    @property
+    def discrete(self):
+        if self.w_binnify.value:
+            return True
+        else:
+            return self.discrete_intrinsic
+
     def max(self):
         return self.score.max()
+
     def min(self):
         return self.score.min()
 
@@ -1723,12 +1808,16 @@ class CMAPPER:
 
     @property
     def categorical_colormapper(self):
-        return CategoricalColorMapper(
-            palette=bokeh.palettes.Category20[20] ,
-            factors=list(self.score.value_counts().index))
+        if self.discrete_intrinsic:
+            return CategoricalColorMapper(
+                palette=bokeh.palettes.Category20[20] ,
+                factors=list(self.score.value_counts().index))
+        else:
+            return self.linear_colormapper
 
     @property
     def score(self):
+
         if self.method in self.intrinsic_methods.keys():
             value_func = self.intrinsic_methods[self.method][1]
             rv = value_func(self.thelenota, self.value)
@@ -1737,6 +1826,7 @@ class CMAPPER:
                 gene= self._score_gene,
                 metadata= self._score_metadata,
             )[self.method]()
+
         #ensure the returning score has the same index as the current counttable
         if self.discrete:
             rv = rv.fillna('<na>')
@@ -1744,7 +1834,14 @@ class CMAPPER:
             rv = rv.fillna(0)
 
         rv = rv.loc[self.thelenota.counttable.columns]
-        return rv
+
+        if self.w_binnify.value:
+            nobins = self.w_bins.value
+            nobins = 2 if nobins < 2 else nobins
+            nobins = 10 if nobins > 10 else nobins
+            return pd.cut(rv, nobins, labels=range(1, nobins+1)).astype('object')
+        else:
+            return rv
 
 
     def _score_metadata(self):
