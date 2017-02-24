@@ -3,51 +3,60 @@ import glob
 import re
 import os
 from path import Path
-
 from rat.snakehelper import pathfinder, pathmapper
+
 
 if os.path.exists('./config.yaml'):
     configfile: './config.yaml'
+    print("Config file found") 
 
 config_default = dict(
     fq_extension='.fastq.gz',
-    dbdir = '/home/mf/data/genome',
+    dbdir = '/ddn1/vol1/staging/leuven/stg_00003/db',
     organism =  'mouse',
-    build = 'GRCm38.rel79',
+    build = 'mm10',
     threads = 8,
-    group = r'^(.*)_R\d_\d{3}.*',
+    group = r'^(.*)_L\d{3}_R\d_\d{3}.*'
     )
-
 update_config(config_default, config)
 config = config_default
 
-print(config)
+#print(config)
 
 FASTQ_FILES = pathfinder('00.fastq/*' + config['fq_extension'])
 
 include: "./includes/fastqc.sm"
 include: "./includes/ercc.sm"
 include: "./includes/kallisto.sm"
-
+include: "./includes/star_se.sm"
+#include: "./includes/Marioni.sm"
+      
 rule groups:
     input: FASTQ_FILES
     output: "group.tsv"
     run:
         regroup = re.compile(config['group'])
+	print("Input files found: %d" % len(input))
         with open(output[0], 'w') as F:
             for infile in input:
                 sample = Path(infile).basename().replace(config['fq_extension'], '')
+		#name="_".join(sample.split("_")[:-1])
                 name = regroup.search(sample).groups()[0]
                 F.write("%s\t%s\n" % (sample, name))
-
 
 rule all:
     input:
         rules.groups.output,
         rules.ercc.output,
         rules.fastqc.output,
-        rules.kallisto.output
-    output:
-        "test.txt"
-    shell:
-        "echo '{config}'"
+        rules.star.output,
+        rules.kallisto.output,
+       # rules.Marioni.output
+
+    output: "config.yaml"
+
+    run:
+        import yaml
+        with open(output[0], 'w') as outfile:
+                yaml.dump(config, outfile, default_flow_style=True)
+

@@ -18,7 +18,7 @@ def get_celery_app():
                                     'fanout_prefix': True}
 
         _APP = Celery('tasks', broker=broker, backend=backend)
-        _APP.conf.CELERYD_POOL_RESTARTS = True
-        _APP.conf.CELERYD_CONCURRENCY = concurrency
-        _APP.conf.CELERY_ACKS_LATE = True
+        _APP.conf.worker_pool_restarts = True
+        _APP.conf.worker_concurrency = concurrency
+        _APP.conf.task_acks_late = True
     return _APP

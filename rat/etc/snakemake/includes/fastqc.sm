@@ -1,16 +1,14 @@
 
-from rat.snakehelper import pathmapper
+
 
 FASTQC_ZIP = pathmapper(FASTQ_FILES, '10.fastqc', '.fastq.gz', '_fastqc.zip')
 FASTQC_HTML = pathmapper(FASTQ_FILES, '10.fastqc', '.fastq.gz', '_fastqc.html')
-
 
 rule fastqc:
     input: FASTQC_ZIP
     output: "fastq_report.tsv"
     script: "scripts/fastq_report.py"
     
-            
 rule fastqc_single:
     input: "00.fastq/{sample}.fastq.gz"
     output:
@@ -18,7 +16,6 @@ rule fastqc_single:
         zipf="10.fastqc/{sample}_fastqc.zip"
     shell:
         """
-        module load FastQC/0.11.5
+	module load FastQC/0.11.5
 	fastqc -o 10.fastqc {input}
 	"""
-
