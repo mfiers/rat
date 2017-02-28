@@ -20,14 +20,18 @@ def spca(m, **kwargs):
     _pca = PCA(**kwargs).fit(m).transform(m)
     return pd.DataFrame(_pca, index=m.index)
 
-@app.task
-def anyfunc(fstr, *args, **kwargs):
-    """
-    Needs a curried function
-    """
-    import pickle
-    f = pickle.loads(fstr)
-    return f(*args, **kwargs)
+@app.task(serializer='dill')
+def anyTask(fun, *args):
+    return fun(*args)
+
+# @app.task
+# def anyfunc(fstr, *args, **kwargs):
+#     """
+#     Needs a curried function
+#     """
+#     import pickle
+#     f = pickle.loads(fstr)
+#     return f(*args, **kwargs)
 
 @app.task
 def runscript(script):
