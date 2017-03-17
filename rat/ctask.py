@@ -60,6 +60,40 @@ def pd_row_pearson(m, b):
     """
     return m.apply(pearson, axis=1, b=b)
 
+@app.task
+def run_scorpius_dimred(m):
+    import warnings
+    import numpy as np
+    import rpy2.robjects as robj
+    from rpy2.robjects.packages import importr
+    from rpy2.robjects import pandas2ri
+    #with warnings.catch_warnings():
+    #         warnings.simplefilter("ignore")
+    pandas2ri.activate()
+    scorpius = importr('SCORPIUS')
+    # note - scorpius seems to want the matrix transposed
+    dist = scorpius.correlation_distance(m.T)
+    dist = np.matrix(dist)
+    dist[np.isnan(dist)]=1
+    space =  scorpius.reduce_dimensionality(dist)
+    rv = pd.DataFrame(np.array(space), index=m.columns)
+    return rv
+
+#    print(data)
+        #     aurank = aucell.AUCell_buildRankings(thelenota.counttable, plotStats=False)
+        #     try:
+        #         cauc = aucell.AUCell_calcAUC(genesets, aurank)
+        #         cauc = pd.DataFrame({select:np.array(cauc)[:,0]},
+        #                             index=thelenota.counttable.columns)
+        #     except RRuntimeError:
+        #         lg.warning("AUCell fail!")
+        #         cauc = pd.DataFrame({select:[0]*len(thelenota.counttable.columns)},
+        #                             index=thelenota.counttable.columns)
+        # cauc = pd.DataFrame({select:np.array(cauc)[:,0]},
+        #                     index=thelenota.counttable.columns)
+        # return cauc
+
+
 from celery.signals import worker_process_init
 from multiprocessing import current_process
 

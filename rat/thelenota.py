@@ -6,18 +6,22 @@ import io
 import itertools
 import json
 import logging
+from multiprocessing.dummy import Pool as mpPool
 import pickle
 import random
+import time
 
 from IPython.display import display
 import ipywidgets as widgets
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
 from path import Path
 import requests
 from scipy.stats import pearsonr
 
+from rat import celery_core, ctask
 from bokeh.colors import RGB
 import bokeh.charts as bokeh_chart
 import bokeh.io  as bokeh_io
@@ -28,6 +32,8 @@ import bokeh.models as bmodels
 import bokeh.palettes
 from bokeh.plotting import figure as bokeh_figure
 
+USE_CELERY = False
+
 lg = logging.getLogger(__name__)
 
 # CONSTANTS
@@ -36,7 +42,7 @@ COUNT_TABLE_DIR = '55.normalized_counts'
 COUNT_TABLE_EXTENSION = '.tsv'
 CACHE_DIR = '99.thelenota_cache'
 DIMRED_DIR = '60.dimred'
-FIGSIZE=(600,500)
+FIGSIZE=(800,600)
 FIGDPI=100
 FIGSIZE2 = FIGSIZE[0]/FIGDPI, FIGSIZE[1]/FIGDPI
 
@@ -140,20 +146,53 @@ def run_dbscan(mat, eps):
     rv = pd.Series(db.labels_, index=mat.index)
     return rv
 
-def run_pca(mat):
-    from sklearn.decomposition import PCA
-    pca = PCA(n_components=10)
-    fit = pca.fit(mat.T)
-    tra = fit.transform(mat.T)
+def run_dr(mat, name, drfunc, **kwargs):
+    dr = drfunc(**kwargs)
+    fit = dr.fit(mat.T)
+    tra = dr.transform(mat.T)
     tra = pd.DataFrame(tra, index=mat.columns)
     meta = pd.DataFrame(index=tra.columns)
-    meta['variance_explained'] = fit.explained_variance_ratio_
-    meta['method'] = 'pca'
+    meta['method'] = name
     return meta, tra
+
+def celery_wait(job):
+    import time
+    while not job.ready():
+        time.sleep(0.5)
+    return job.result
+
+def run_scorpius_dimred(mat):
+    import rat.ctask
+    
+    if USE_CELERY:
+        job = rat.ctask.run_scorpius_dimred.delay(mat)
+        tra = celery_wait(job)
+        if isinstance(tra, Exception):
+            raise tra
+    else:
+        tra = rat.ctask.run_scorpius_dimred(mat)
+        
+    meta = pd.DataFrame(index=tra.columns)
+    meta['method'] = 'scorpius'
+    return meta, tra
+    
+def run_ica(mat):
+    from sklearn.decomposition import FastICA
+    return run_dr(mat, 'ica', FastICA, n_components=10)
+
+
+def run_KernelPCA(mat):
+    from sklearn.decomposition import KernelPCA
+    return run_dr(mat, 'kernel_pca', KernelPCA, n_components=10)
+
+                       
+def run_pca(mat):
+    from sklearn.decomposition import PCA
+    return run_dr(mat, 'pca', PCA, n_components=20)
 
 def run_nmf(mat):
     from sklearn.decomposition import NMF
-    nmf = NMF(n_components=10)
+    nmf = NMF(n_components=10, solver='cd')
     tmat = mat.T + abs(mat.min().min())
     fit = nmf.fit(tmat)
     tra = fit.transform(tmat)
@@ -163,41 +202,84 @@ def run_nmf(mat):
     meta['method'] = 'pca'
     return meta, tra
 
+#def run_return
+
 
 def run_tsne(mat, get_param):
+
+    import uuid
+    uid = str(uuid.uuid4).replace('-', '')[:4]
+    lg.debug('start tsne {}'.format(uid))
     from sklearn.decomposition import PCA
-
     from sklearn.manifold import TSNE
-    #
-    #
-    # try:
-    #     from MulticoreTSNE import MulticoreTSNE as TSNE
-    #     TSNE = partial(TSNE, n_jobs=-1) #use all available cpus
-    # except ImportError:
-    #     from sklearn.manifold import TSNE
-
+    import rat.ctask
+    
     param = get_param()
     pca_var_cutoff = param.get('pca_var_cutoff', 0.2)
 
     tsne_param_names = '''early_exaggeration
                           perplexity
+                          angle
                           learning_rate'''.split()
 
     tsne_param = {a:b for a,b in param.items() if a in tsne_param_names}
-    pca = PCA(n_components=param.get('pca_components', 20))
-    pcafit = pca.fit(mat.T)
-    nodim = len([x for x in pcafit.explained_variance_ratio_
-                 if x > pca_var_cutoff])
-    if nodim < 2:
-        nodim = 2 # ensure at least two dimentions used
-    ptra = pd.DataFrame(pcafit.transform(mat.T))
-    tsne = TSNE(random_state=42, **tsne_param)
-    ttra = pd.DataFrame(tsne.fit_transform(ptra.iloc[:,:nodim].as_matrix()), index=mat.columns)
+
+    #job = ctask.anyTask.delay(run_dr_2)
+    # while not job.ready():
+    #     time.sleep(0.5)
+    # stats, trans = run_dr_2()
+
+    start = time.time()
+
+
+    if USE_CELERY:
+        job = ctask.spca.delay(mat.T, n_components=param.get('pca_components', 20))
+
+        while not job.ready():
+            time.sleep(0.5)
+
+        ptra = job.result
+    else:
+        ptra = ctask.spca(mat.T, n_components=param.get('pca_components', 20))
+
+    lg.debug('pca finished, {} {}sec'.format(uid, time.time()-start))
+
+    #print(ptra.head())
+    
+    #nodim = len([x for x in pcafit.explained_variance_ratio_
+    #             if x > pca_var_cutoff])
+    #if nodim < 2:
+    #    nodim = 2 # ensure at least two dimentions used
+    #ptra = pd.DataFrame(pcafit)
+
+    # job = rat.ctask.TSNE.delay(ptra.iloc[:,:nodim].as_matrix(), random_state=42, **tsne_param)
+    start = time.time()
+    if USE_CELERY:
+        job = rat.ctask.tsne.delay(ptra, random_state=42, **tsne_param)
+        while not job.ready():
+            time.sleep(0.5)
+        ttra = pd.DataFrame(job.result, index=mat.columns)
+    else:
+        ttra = rat.ctask.tsne(ptra, random_state=42, **tsne_param)
+        ttra = pd.DataFrame(ttra, index=mat.columns)
+        
+    lg.debug('tsne finished, {{ {}sec'.format(uid, time.time()-start))
 
     meta = pd.DataFrame(index=ttra.columns)
     meta['method'] = 'tsne'
     return meta, ttra
 
+
+def get_cachefile_name(thelenota, category, fmt, namer):
+    cache_dir = thelenota.cachedir / category
+    cache_dir.makedirs_p()
+    if isinstance(namer, str):
+        objname = namer
+    else:
+        objname = namer()
+    extension = dict(mtsv='tsv.gz',
+                     tsv='tsv.gz').get(fmt, fmt)
+    return cache_dir / '{}.{}'.format(objname, extension)
 
 def setcache(thelenota, category, fmt, namer, value):
     cache_dir = thelenota.cachedir / category
@@ -233,14 +315,18 @@ def dcache(thelenota, category, fmt, namer, force=lambda: False):
 
             if cache_file.exists() and not force():
                 # print('load from cache ({})'.format(force()))
-                return io_load(cache_file)
-            else:
-                # print('redo')
-                rv = func(*args, **kwargs)
-                io_save(cache_file, rv)
-                return rv
+                try:
+                    return io_load(cache_file)
+                except:
+                    lg.warning("error loading from cache")
+                    lg.warning(str(cache_file))
+            # print('redo')
+            rv = func(*args, **kwargs)
+            io_save(cache_file, rv)
+            return rv
         return cfunc2
     return cfunc
+
 
 def cache_widget_value(widget, default, thelenota, name, namer,
                        field_name='value', fmt='str'):
@@ -352,7 +438,7 @@ def create_count_table_stats(c):
 class Thelenota:
 
     def __init__(self,
-                 basedir,
+                 basedir = '.',
                  experiment_name=None,
                  geneset_dir=None,
                  count_table_dir=COUNT_TABLE_DIR ):
@@ -422,7 +508,7 @@ class Thelenota:
     def get_experiment_name(self):
         return self.experiment_w.value
     def set_experiment_name(self, value):
-        lg.warning("using set_experiment_name ({})".format(value))
+        lg.debug("using set_experiment_name ({})".format(value))
         self.experiment_w.value = value
     experiment_name = property(get_experiment_name, set_experiment_name)
 
@@ -569,10 +655,9 @@ class Thelenota:
     #
     # Precalc DimRed
     #
-    def precalc(self, method, **param):
+    def precalc(self, **param):
 
-        if method == 'tsne':
-            assert set(param.keys()) == set(self._tsne_params)
+        assert set(param.keys()) == set(self._tsne_params)
 
         keys, vals = zip(*param.items())
         vals = [ x if isinstance(x, collections.Iterable) else [x]
@@ -580,36 +665,36 @@ class Thelenota:
 
         allmat = []
 
-        for v in itertools.product(*vals):
+        celery_app = celery_core.get_celery_app()
+        counts = self.counttable
+
+        cache_dir = self.cachedir /  'dimred_table'
+        cache_dir.makedirs_p()
+
+        def run_one(v):
+
             tparam = dict(zip(keys, v))
             def dr_name():
                 """ Make a unqiue name for this run -
                 for caching purposes - including tsne parameters
                 """
-                rv = '{}'.format(self.counttable_name)
-                rv += '_{}'.format(method)
-                if method == 'tsne':
-                    for k, v in sorted(tparam.items()):
-                        rv += '__{}_{}'.format(k,v)
+                rv = '{}_tsne'.format(self.counttable_name)
+                for k, v in sorted(tparam.items()):
+                    rv += '__{}_{}'.format(k,v)
                 return rv
 
-            @dcache(self, 'dimred_table', 'mtsv', dr_name)
-            def run_dr_2(*_):
-                counts = self.counttable
-                if method == 'pca':
-                    stats, trans = run_pca(counts)
-                elif method == 'nmf':
-                    stats, trans = run_nmf(counts)
-                elif method == 'tsne':
-                    stats, trans = run_tsne(counts, lambda: tparam)
-                else:
-                    raise NotImplemented()
-                return stats, trans
+            cache_file = get_cachefile_name(self, 'dimred_table', 'mtsv', dr_name)
+            if cache_file.exists() and cache_file.getsize() > 0:
+                #already done
+                return
 
-            stats, trans = run_dr_2()
-            allmat.append((tparam, stats, trans))
+            stats, trans = run_tsne(counts, lambda: tparam)
 
-        return allmat
+            setcache(self, 'dimred_table', 'mtsv', dr_name, (stats, trans))
+
+        pool = mpPool(50)
+        allmat = pool.map(run_one, itertools.product(*vals))
+
     #
     # mean cell expression plot
     #
@@ -953,6 +1038,33 @@ class Thelenota:
         display(html_link_w)
 
 
+    def tsne_parameter_space(self, **kwargs):
+        dcache = self.cachedir / 'dimred_table'
+        def fn2dat(f):
+            f = f.basename()[:-7]
+            d = f.split('__')
+            args = dict([x.rsplit('_', 1) for x in d[1:]])
+            args['method'] = d[0].split('_')[-1]
+            return args
+        
+        rv = pd.DataFrame(list(map(fn2dat, dcache.glob('*.tsv.gz'))))
+        rv = rv[rv['method'] == 'tsne']
+        del rv['method']
+        rv['perplexity'] = rv['perplexity'].astype(int)
+        rv['learning_rate'] = rv['learning_rate'].astype(int)
+        rv['angle'] = rv['angle'].astype(float)
+        rv['early_exaggeration'] = rv['early_exaggeration'].astype(float)
+        rv['pca_var_cutoff'] = rv['pca_var_cutoff'].astype(float)
+        for k,v in kwargs.items():
+            rv = rv[np.isclose(rv[k], v)]
+        return rv
+    
+    def PEXP(self, **kwargs):
+        params = 'angle early_exaggeration perplexity learning_rate pca_var_cutoff'.split()
+        for p in params:
+            print(p, kwargs[p])
+
+            
     def DRED(self):
 
         # DIMRED widgets
@@ -981,7 +1093,7 @@ class Thelenota:
 
         drmethod_w = self.ccwidget(
             'dimred_method', 'dropdown', dr_name_simple, 'tsne',
-            options='pca tsne nmf'.split())
+            options='pca ica scorpius KernelPCA tsne nmf'.split())
 
         drperplex_w = cache_widget_value(
             widgets.IntSlider(value=67, min=2, max=99, step=5),
@@ -1180,7 +1292,7 @@ class Thelenota:
             method = dr_w['method'].value
             d = dict(method=method)
 
-            if method == 'pca':
+            if method in 'pca ica scorpius KernelPCA nmf'.split():
                 return d
 
             for k, v in dr_w.items():
@@ -1215,12 +1327,18 @@ class Thelenota:
             counts = self.counttable
             if method == 'pca':
                 stats, trans = run_pca(counts)
+            elif method == 'ica':
+                stats, trans = run_ica(counts)
+            elif method == 'KernelPCA':
+                stats, trans = run_KernelPCA(counts)
+            elif method == 'scorpius':
+                stats, trans = run_scorpius_dimred(counts)
             elif method == 'nmf':
                 stats, trans = run_nmf(counts)
             elif method == 'tsne':
                 stats, trans = run_tsne(counts, get_dr_param)
             else:
-                raise NotImplemented()
+                raise NotImplemented
             return stats, trans
 
         def warn(message):
@@ -1236,7 +1354,8 @@ class Thelenota:
             bplot.glyph.fill_color['transform'] = color_mapper
             bplot.data_source.data['score'] = score
 
-            bcolorbar.color_mapper = color_mapper
+            if not tcolormap.discrete:
+                bcolorbar.color_mapper = color_mapper
 
             if tcolormap.discrete:
                 if not bfigure.legend[0].items:
