@@ -1,10 +1,21 @@
 
+import os
 import time
+
 from rq import Queue
 from redis import Redis
 
-RC = Redis()
+
+_REDIS_ARGS = dict(
+    host = os.environ.get('RQHOST'),
+    port = int(os.environ.get('RQPORT', 6379)),
+    password = os.environ.get('RQPASS'),
+    )
+
+
+RC = Redis(**_REDIS_ARGS)
 QS = {}
+
 
 def get_queue(name):
     if not name in QS:
@@ -14,9 +25,6 @@ def get_queue(name):
 
 def get_rq_redis_connection():
     return RC
-
-
-
 
 
 def syncrun(func):
@@ -42,12 +50,3 @@ def syncrun(func):
     return func
 
 
-# #@rq_sync('t2', RQREDIS)
-# def async(q, func, *args, **kwargs):
-#     print('start async run')
-#     job = q.enqueue(func, *args, **kwargs)
-#     print(job.id)
-#     while not job.is_finished:
-#         time.sleep(1)
-#     print('done rq run')
-#     return job.result

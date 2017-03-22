@@ -5,6 +5,8 @@ from setuptools import setup, find_packages
 entry_points = {
     'console_scripts': [
         'rat = rat.cli:dispatch',
+        'rat_rqworker = rat.rqworker:dispatch',
+        'rat_norm = rat.normalizer:dispatch',
     ]}
 
 
